@@ -1,0 +1,45 @@
+# Minimal pre-commit setup, modeled on hajduk-detector but stripped down.
+# What was dropped and why (avoiding overengineering):
+# - ty type checker -> mypy --strict alone is enough to start.
+# - typos spell checker -> nice-to-have, add back when docs grow.
+# - zizmor workflow scanner -> only needed once you SHA-pin actions
+#   (we do pin below, but one tool fewer to learn is worth it for now).
+# - local `uv run ...` hooks -> upstream repos where possible (ruff), local
+#   hook only for pyrefly so the checker version stays pinned in uv.lock.
+#
+# Install once per machine: `uv tool install pre-commit` (or `pipx install pre-commit`)
+# Then per clone: `pre-commit install`
+# (`prek` is a drop-in Rust replacement: `prek install` works with this file too.)
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      # Secret-leak safety net (no binary to install):
+      # blocks accidentally committed RSA/EC private keys.
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.14
+    hooks:
+      # --fix auto-sorts imports (I rules) and safe fixes; exits non-zero
+      # so the commit stops and you re-stage the fixed files.
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pyrefly
+        name: pyrefly check
+        # Local hook (same pattern hajduk-detector uses for mypy/ty):
+        # runs the pinned dev dependency, so CLI, hook, and CI all use
+        # the exact same checker version. Full-project run, not per-file,
+        # since a type checker needs the whole import graph.
+        entry: uv run pyrefly check
+        language: unsupported
+        pass_filenames: false

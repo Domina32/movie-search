@@ -1,0 +1,18 @@
+# Bump the SHA-pinned GitHub Actions. Dependabot rewrites the pin (commit SHA
+# plus the version comment) in a PR, and CI runs on pull requests, so every bump
+# is tested before it lands.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Don't pick up an action release the moment it lands; GitHub's default is
+    # no cooldown at all.
+    cooldown:
+      default-days: 7
+    # One PR per week for all actions instead of one PR per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"

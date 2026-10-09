@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage*
+
+# Editors
+.vscode/
+.idea/
+
+# Secrets / local env
+.env
+.env.local
+.env.*
+!.env.example
