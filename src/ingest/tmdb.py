@@ -1,0 +1,190 @@
+"""TMDB API client."""
+
+from datetime import UTC, datetime
+from typing import Literal, TypedDict, cast
+
+import httpx
+
+from config import LOG
+
+BASE_URL = "https://api.themoviedb.org/3"
+
+
+class GenreResponseData(TypedDict):
+    id: int
+    name: str
+
+
+class CreatorResponseData(TypedDict):
+    id: int
+    name: str
+
+
+class CastResponseData(TypedDict):
+    id: int
+    name: str
+    order: int
+
+
+class CrewResponseData(TypedDict):
+    id: int
+    name: str
+    job: str
+
+
+class CreditsResponseData(TypedDict):
+    cast: list[CastResponseData]
+    crew: list[CrewResponseData]
+
+
+class ReviewResponseData(TypedDict):
+    id: str
+    content: str
+
+
+class ReviewsResponseData(TypedDict):
+    results: list[ReviewResponseData]
+
+
+class LanguageResponseData(TypedDict):
+    english_name: str
+
+
+class TrendingMovieTitleResponseData(TypedDict):
+    id: int
+    title: str
+    original_language: str
+
+
+class TrendingTvTitleResponseData(TypedDict):
+    id: int
+    name: str
+    original_language: str
+
+
+class DetailsTvResponseData(TypedDict):
+    id: int
+    name: str
+    original_language: str
+    spoken_languages: list[LanguageResponseData]
+    genres: list[GenreResponseData]
+    first_air_date: str
+    credits: CreditsResponseData
+    created_by: list[CreatorResponseData]
+    reviews: ReviewsResponseData
+
+
+class DetailsMovieResponseData(TypedDict):
+    id: int
+    title: str
+    original_language: str
+    spoken_languages: list[LanguageResponseData]
+    genres: list[GenreResponseData]
+    release_date: str
+    credits: CreditsResponseData
+    reviews: ReviewsResponseData
+
+
+async def get_trending(
+    client: httpx.AsyncClient,
+    token: str,
+    media_type: Literal["movie", "tv"],
+    page: int = 1,
+) -> list[dict[str, TrendingTvTitleResponseData | TrendingMovieTitleResponseData]]:
+    """
+    Get trending movies and tv shows for the day.
+    """
+    response = await client.get(
+        f"{BASE_URL}/trending/{media_type}/day",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"page": page},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    return response.json().get("results", [])
+
+
+async def get_title_details(
+    client: httpx.AsyncClient,
+    token: str,
+    media_type: Literal["movie", "tv"],
+    title_id: int,
+) -> DetailsMovieResponseData | DetailsTvResponseData:
+    """
+    Get metadata for movie or tv show by id.
+    """
+    LOG.debug(f"Fetching details for title id {title_id}.")
+
+    response = await client.get(
+        f"{BASE_URL}/{media_type}/{title_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"append_to_response": "credits,reviews"},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+
+    LOG.debug(f"Fetched details for title id {title_id}.")
+
+    return response.json()
+
+
+def normalize_title(
+    raw: DetailsTvResponseData | DetailsMovieResponseData,
+    media_type: Literal["movie", "tv"],
+):
+    """
+    Parse response data for title into shape with details, credits and reviews.
+    """
+    credits = raw.get("credits") or {}
+    cast_members = credits.get("cast") or []
+    crew = credits.get("crew") or []
+
+    actors = [
+        member.get("name", "")
+        for member in sorted(cast_members, key=lambda x: x.get("order", 999))
+        if member.get("name")
+    ][:5]
+
+    directors = [
+        member.get("name", "")
+        for member in crew
+        if member.get("job") == "Director" and member.get("name")
+    ]
+    # plan b for tv shows with no directors:
+    # credit creators instead which is tv show equivalent.
+    # cast: callers pass the TV shape when media_type == "tv",
+    # which the checker cannot infer from the sibling parameter.
+    if not directors and media_type == "tv":
+        created = cast("DetailsTvResponseData", raw).get("created_by") or []
+        directors = [member.get("name", "") for member in created if member.get("name")]
+
+    # get human readable language name
+    spoken = raw.get("spoken_languages") or []
+    language_name = spoken[0].get("english_name", "") if spoken else ""
+
+    genres = [g.get("name", "") for g in (raw.get("genres") or []) if g.get("name")]
+
+    reviews_block = raw.get("reviews") or {}
+    review_items = reviews_block.get("results") or []
+    reviews = [
+        {
+            "id": r.get("id", ""),
+            "content": r.get("content", ""),
+        }
+        for r in review_items
+        if r.get("content")
+    ]
+
+    return {
+        "tmdb_id": raw.get("id"),
+        "fetched_at": datetime.now(UTC).isoformat(),
+        "media_type": media_type,
+        "title": raw.get("title") or raw.get("name") or "",
+        "original_language": raw.get("original_language", ""),
+        "language_name": language_name,
+        "genres": genres,
+        "release_date": raw.get("release_date") or raw.get("first_air_date") or "",
+        "actors": actors,
+        "directors": directors,
+        "reviews": reviews,
+    }

@@ -1,7 +1,15 @@
+from typing import Literal
+
 import httpx
 import pytest
 
-from ingest.tmdb import get_title_details, get_trending, normalize_title
+from ingest.tmdb import (
+    DetailsMovieResponseData,
+    DetailsTvResponseData,
+    get_title_details,
+    get_trending,
+    normalize_title,
+)
 
 
 @pytest.mark.parametrize(
@@ -11,8 +19,9 @@ from ingest.tmdb import get_title_details, get_trending, normalize_title
         ("tv", {"id": 2, "name": "Shogun", "original_language": "ja"}),
     ],
 )
+@pytest.mark.asyncio
 async def test_get_trending_sends_auth_and_keeps_language(
-    media_type: str, item: dict[str, object]
+    media_type: Literal["movie", "tv"], item: dict[str, object]
 ) -> None:
     seen: dict[str, str] = {}
 
@@ -32,6 +41,7 @@ async def test_get_trending_sends_auth_and_keeps_language(
     assert "language=" not in seen["url"]
 
 
+@pytest.mark.asyncio
 async def test_get_trending_raises_on_http_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"status_message": "Invalid token"})
@@ -44,6 +54,7 @@ async def test_get_trending_raises_on_http_error() -> None:
     raise AssertionError("expected HTTPStatusError for 401")
 
 
+@pytest.mark.asyncio
 async def test_get_title_details_appends_credits_and_reviews() -> None:
     seen: dict[str, str] = {}
 
@@ -63,6 +74,7 @@ async def test_get_title_details_appends_credits_and_reviews() -> None:
     assert "reviews" in seen["url"]
 
 
+@pytest.mark.asyncio
 async def test_get_title_details_raises_on_http_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"status_message": "Not found"})
@@ -78,22 +90,22 @@ async def test_get_title_details_raises_on_http_error() -> None:
 
 
 def test_normalize_title_movie() -> None:
-    raw = {
+    raw: DetailsMovieResponseData = {
         "id": 1,
         "title": "Dune",
         "original_language": "en",
         "spoken_languages": [{"english_name": "English"}],
-        "genres": [{"name": "Sci-Fi"}, {"name": ""}],
+        "genres": [{"id": 0, "name": "Sci-Fi"}, {"id": 1, "name": ""}],
         "release_date": "2021-09-15",
         "credits": {
             "cast": [
-                {"name": "B", "order": 1},
-                {"name": "A", "order": 0},
-                {"name": ""},
+                {"id": 0, "name": "B", "order": 1},
+                {"id": 1, "name": "A", "order": 0},
+                {"id": 2, "name": "", "order": 2},
             ],
             "crew": [
-                {"name": "Denis Villeneuve", "job": "Director"},
-                {"name": "Someone", "job": "Producer"},
+                {"id": 0, "name": "Denis Villeneuve", "job": "Director"},
+                {"id": 1, "name": "Someone", "job": "Producer"},
             ],
         },
         "reviews": {
@@ -114,15 +126,15 @@ def test_normalize_title_movie() -> None:
 
 
 def test_normalize_title_tv_falls_back_to_creators() -> None:
-    raw = {
+    raw: DetailsTvResponseData = {
         "id": 2,
         "name": "Shogun",
         "original_language": "ja",
         "spoken_languages": [],
-        "genres": [{"name": "Drama"}],
+        "genres": [{"id": 0, "name": "Drama"}],
         "first_air_date": "2024-02-27",
         "credits": {"cast": [], "crew": []},
-        "created_by": [{"name": "Jonathan van Tulleken"}],
+        "created_by": [{"id": 0, "name": "Jonathan van Tulleken"}],
         "reviews": {"results": []},
     }
     out = normalize_title(raw, "tv")

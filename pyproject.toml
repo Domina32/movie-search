@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
+    "pytest-asyncio>=1.4.0",
     "python-dotenv>=1.2.4",
     "sqlmodel>=0.0.48",
 ]
@@ -30,6 +31,9 @@ packages = ["src/db", "src/ingest"]
 # NOTE: src/config.py is a top-level module, not a package, so the wheel
 # build needs a follow-up (force-include) if we ever publish. Dev/test/run
 # use PYTHONPATH=src / pytest pythonpath below, unaffected.
+
+[tool.pyrefly]
+preset = "strict"
 
 [tool.ruff]
 target-version = "py314"
