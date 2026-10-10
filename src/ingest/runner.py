@@ -1,4 +1,5 @@
 import asyncio
+import time
 from asyncio import Task
 from typing import Any, Literal
 
@@ -8,6 +9,11 @@ from config import LOG, get_max_pages, get_tmdb_read_token
 from ingest.tmdb import get_title_details, get_trending, normalize_title
 
 # rate limit: 40 requests per 1 second
+# API response page size is 20 titles
+# so we can safely execute 20+1 requests
+# in half the rate limit time (0.5 sec)
+# and add 0.1sec overhead for safety
+THROTTLE_TIME = 0.6
 
 
 async def build_title(
@@ -34,9 +40,24 @@ async def fetch_titles(max_pages: int | None = None) -> None:
 
     async with httpx.AsyncClient() as client:
         for media_type in media_types:
+            last_fetch_start_timestamp: float | None = None
+
             for current_page in range(1, max_pages + 1):
+                current_timestamp = time.monotonic()
+                time_since_last_fetch_started = current_timestamp - (
+                    last_fetch_start_timestamp or 0
+                )
+
+                # We have to throttle if a second has not yet passed to avoid rate limits
+                if time_since_last_fetch_started < THROTTLE_TIME:
+                    remaining_time = THROTTLE_TIME - time_since_last_fetch_started
+
+                    await asyncio.sleep(remaining_time)
+
+                last_fetch_start_timestamp = current_timestamp
+
                 LOG.debug(f"Fetching page {current_page} for media type {media_type}.")
-                items = await get_trending(client, token, media_type)
+                items = await get_trending(client, token, media_type, current_page)
                 title_tasks = [
                     build_title(item, client, token, media_type) for item in items
                 ]

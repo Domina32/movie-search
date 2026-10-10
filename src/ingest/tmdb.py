@@ -89,7 +89,7 @@ async def get_trending(
     client: httpx.AsyncClient,
     token: str,
     media_type: Literal["movie", "tv"],
-    page: int = 1,
+    page: int,
 ) -> list[dict[str, TrendingTvTitleResponseData | TrendingMovieTitleResponseData]]:
     """
     Get trending movies and tv shows for the day.
