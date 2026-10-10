@@ -28,16 +28,18 @@ async def test_get_trending_sends_auth_and_keeps_language(
     def handler(request: httpx.Request) -> httpx.Response:
         seen["auth"] = request.headers.get("authorization", "")
         seen["url"] = str(request.url)
-        return httpx.Response(200, json={"page": 1, "results": [item]})
+        return httpx.Response(200, json={"page": 3, "results": [item]})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    results = await get_trending(client, token="test-token", media_type=media_type)
+    results = await get_trending(
+        client, token="test-token", media_type=media_type, page=3
+    )
 
     assert len(results) == 1
     assert results[0]["original_language"] == item["original_language"]
     assert seen["auth"] == "Bearer test-token"
     assert f"trending/{media_type}/day" in seen["url"]
-    assert "page=1" in seen["url"]
+    assert "page=3" in seen["url"]
     assert "language=" not in seen["url"]
 
 
@@ -48,7 +50,7 @@ async def test_get_trending_raises_on_http_error() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     try:
-        await get_trending(client, token="bad-token", media_type="movie")
+        await get_trending(client, token="bad-token", media_type="movie", page=1)
     except httpx.HTTPStatusError:
         return
     raise AssertionError("expected HTTPStatusError for 401")
