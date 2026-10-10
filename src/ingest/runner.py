@@ -5,8 +5,14 @@ from typing import Any, Literal
 
 import httpx
 
-from config import LOG, get_max_pages, get_tmdb_read_token
-from ingest.tmdb import get_title_details, get_trending, normalize_title
+from config import LOG, get_database_url, get_max_pages, get_tmdb_read_token
+from db.session import ensure_schema, get_engine, store_titles
+from ingest.tmdb import (
+    NormalizedTitleResultData,
+    get_title_details,
+    get_trending,
+    normalize_title,
+)
 
 # rate limit: 40 requests per 1 second
 # API response page size is 20 titles
@@ -21,7 +27,7 @@ async def build_title(
     client: httpx.AsyncClient,
     token: str,
     media_type: Literal["movie", "tv"],
-) -> dict[str, Any] | None:
+) -> NormalizedTitleResultData | None:
     title_id = item.get("id")
     if not isinstance(title_id, int):
         return
@@ -37,6 +43,10 @@ async def fetch_titles(max_pages: int | None = None) -> None:
 
     token = get_tmdb_read_token()
     media_types: tuple[Literal["movie", "tv"], ...] = ("movie", "tv")
+    engine = get_engine(get_database_url())
+    ensure_schema(engine)  # dev-only; Alembic owns prod schema
+
+    records: list[NormalizedTitleResultData] = []
 
     async with httpx.AsyncClient() as client:
         for media_type in media_types:
@@ -61,7 +71,7 @@ async def fetch_titles(max_pages: int | None = None) -> None:
                 title_tasks = [
                     build_title(item, client, token, media_type) for item in items
                 ]
-                titles: list[Task[dict[str, Any] | None]] = []
+                titles: list[Task[NormalizedTitleResultData | None]] = []
                 async with asyncio.TaskGroup() as tg:
                     for task in title_tasks:
                         _task = tg.create_task(task)
@@ -71,16 +81,23 @@ async def fetch_titles(max_pages: int | None = None) -> None:
                     record = title_task.result()
                     if record is None:
                         continue
+                    records.append(record)
                     LOG.debug(
-                        "%s | %s (%s) | %s | %s | %s | %s | %d reviews",
-                        record["title"],
-                        record["language_name"] or "-",
-                        record["original_language"],
-                        record["release_date"],
-                        ", ".join(record["genres"]),
-                        ", ".join(record["actors"]),
-                        ", ".join(record["directors"]),
+                        "%s | %s (%s) | %s | %d reviews",
+                        record["title"]["title"],
+                        record["title"]["language_name"] or "-",
+                        record["title"]["original_language"],
+                        record["title"]["release_date"],
                         len(record["reviews"]),
+                    )
+
+                if records:
+                    stored = store_titles(engine, records)
+                    LOG.debug(
+                        "Stored type=%s page=%d rows=%d",
+                        media_type,
+                        current_page,
+                        stored,
                     )
 
 
