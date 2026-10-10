@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 _default:
     @just --list --unsorted
 
@@ -16,3 +18,8 @@ typecheck:
     uv run pyrefly check src tests
 
 check: lint typecheck test
+
+# -- App scripts --------------------------------------------------------
+
+fetch-titles:
+    PYTHONPATH=src uv run python -m ingest.runner

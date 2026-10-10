@@ -5,8 +5,12 @@ description = "Semantic movie search"
 readme = "README.md"
 requires-python = ">=3.14,<4.0"
 dependencies = [
+    "alembic>=1.20.0",
     "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.4",
+    "sqlmodel>=0.0.48",
 ]
 
 [dependency-groups]
@@ -21,7 +25,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/movie_search"]
+# Flat src layout: top-level packages live directly under src/.
+packages = ["src/db", "src/ingest"]
+# NOTE: src/config.py is a top-level module, not a package, so the wheel
+# build needs a follow-up (force-include) if we ever publish. Dev/test/run
+# use PYTHONPATH=src / pytest pythonpath below, unaffected.
 
 [tool.ruff]
 target-version = "py314"
@@ -47,3 +55,4 @@ keep-runtime-typing = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]

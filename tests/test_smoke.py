@@ -1,4 +1,4 @@
-from movie_search import hello
+from config import hello
 
 
 def test_hello() -> None:
