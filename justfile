@@ -8,6 +8,10 @@ _default:
 test:
     uv run pytest
 
+# Fast suite: skip Hypothesis property tests.
+test-fast:
+    uv run pytest -m "not hypothesis"
+
 # ── Lint / checks ──────────────────────────────────────────────────────
 
 lint:
@@ -19,7 +23,18 @@ typecheck:
 
 check: lint typecheck test
 
+# -- Services -----------------------------------------------------------
+
+# Start local Postgres (idempotent: reuses container if present).
+db:
+    docker start movie-pg 2>/dev/null || docker run -d --name movie-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=movie_search -p 5432:5432 -v movie-pg-data:/var/lib/postgresql/data postgres:16
+
+# Stop local Postgres, keep data.
+db-down:
+    docker stop movie-pg
+
 # -- App scripts --------------------------------------------------------
 
-fetch-titles:
+# Ingest trending into Postgres. Needs `just db` first.
+fetch-titles: db
     PYTHONPATH=src uv run python -m ingest.runner

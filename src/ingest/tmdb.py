@@ -85,6 +85,29 @@ class DetailsMovieResponseData(TypedDict):
     reviews: ReviewsResponseData
 
 
+class NormalizedReviewData(TypedDict):
+    id: str
+    content: str
+
+
+class NormalizedTitleData(TypedDict):
+    tmdb_id: int
+    title: str
+    original_language: str
+    language_name: str
+    release_date: str
+    fetched_at: str
+    media_type: Literal["movie", "tv"]
+
+
+class NormalizedTitleResultData(TypedDict):
+    title: NormalizedTitleData
+    reviews: list[NormalizedReviewData]
+    # genres: list[str]
+    # actors: list[str]
+    # directors: list[str]
+
+
 async def get_trending(
     client: httpx.AsyncClient,
     token: str,
@@ -131,10 +154,14 @@ async def get_title_details(
 def normalize_title(
     raw: DetailsTvResponseData | DetailsMovieResponseData,
     media_type: Literal["movie", "tv"],
-):
+) -> NormalizedTitleResultData | None:
     """
     Parse response data for title into shape with details, credits and reviews.
+    Returns None when the payload has no usable TMDB id (nothing to store).
     """
+    raw_id = raw.get("id")
+    if not isinstance(raw_id, int):
+        return None
     credits = raw.get("credits") or {}
     cast_members = credits.get("cast") or []
     crew = credits.get("crew") or []
@@ -166,7 +193,7 @@ def normalize_title(
 
     reviews_block = raw.get("reviews") or {}
     review_items = reviews_block.get("results") or []
-    reviews = [
+    reviews: list[NormalizedReviewData] = [
         {
             "id": r.get("id", ""),
             "content": r.get("content", ""),
@@ -175,16 +202,28 @@ def normalize_title(
         if r.get("content")
     ]
 
-    return {
-        "tmdb_id": raw.get("id"),
-        "fetched_at": datetime.now(UTC).isoformat(),
-        "media_type": media_type,
-        "title": raw.get("title") or raw.get("name") or "",
+    if media_type == "movie":
+        title = cast("DetailsMovieResponseData", raw).get("title") or ""
+        release_date = cast("DetailsMovieResponseData", raw).get("release_date") or ""
+    else:
+        title = cast("DetailsTvResponseData", raw).get("name") or ""
+        release_date = cast("DetailsTvResponseData", raw).get("first_air_date") or ""
+
+    t: NormalizedTitleData = {
+        "tmdb_id": raw_id,
+        "title": title,
         "original_language": raw.get("original_language", ""),
         "language_name": language_name,
+        "release_date": release_date,
+        "fetched_at": datetime.now(UTC).isoformat(),
+        "media_type": media_type,
+    }
+    _rest = {
         "genres": genres,
-        "release_date": raw.get("release_date") or raw.get("first_air_date") or "",
         "actors": actors,
         "directors": directors,
+    }
+    return {
+        "title": t,
         "reviews": reviews,
     }
