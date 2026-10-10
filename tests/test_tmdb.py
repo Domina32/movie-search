@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from movie_search.tmdb import get_title_details, get_trending, normalize_title
+from ingest.tmdb import get_title_details, get_trending, normalize_title
 
 
 @pytest.mark.parametrize(
@@ -11,7 +11,7 @@ from movie_search.tmdb import get_title_details, get_trending, normalize_title
         ("tv", {"id": 2, "name": "Shogun", "original_language": "ja"}),
     ],
 )
-def test_get_trending_sends_auth_and_keeps_language(
+async def test_get_trending_sends_auth_and_keeps_language(
     media_type: str, item: dict[str, object]
 ) -> None:
     seen: dict[str, str] = {}
@@ -21,8 +21,8 @@ def test_get_trending_sends_auth_and_keeps_language(
         seen["url"] = str(request.url)
         return httpx.Response(200, json={"page": 1, "results": [item]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    results = get_trending(client, token="test-token", media_type=media_type)  # type: ignore[arg-type]
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    results = await get_trending(client, token="test-token", media_type=media_type)
 
     assert len(results) == 1
     assert results[0]["original_language"] == item["original_language"]
@@ -32,27 +32,29 @@ def test_get_trending_sends_auth_and_keeps_language(
     assert "language=" not in seen["url"]
 
 
-def test_get_trending_raises_on_http_error() -> None:
+async def test_get_trending_raises_on_http_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"status_message": "Invalid token"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     try:
-        get_trending(client, token="bad-token", media_type="movie")
+        await get_trending(client, token="bad-token", media_type="movie")
     except httpx.HTTPStatusError:
         return
     raise AssertionError("expected HTTPStatusError for 401")
 
 
-def test_get_title_details_appends_credits_and_reviews() -> None:
+async def test_get_title_details_appends_credits_and_reviews() -> None:
     seen: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         return httpx.Response(200, json={"id": 1, "title": "Dune"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    data = get_title_details(client, token="test-token", media_type="movie", title_id=1)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    data = await get_title_details(
+        client, token="test-token", media_type="movie", title_id=1
+    )
 
     assert data["id"] == 1
     assert "/movie/1" in seen["url"]
@@ -61,13 +63,15 @@ def test_get_title_details_appends_credits_and_reviews() -> None:
     assert "reviews" in seen["url"]
 
 
-def test_get_title_details_raises_on_http_error() -> None:
+async def test_get_title_details_raises_on_http_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"status_message": "Not found"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     try:
-        get_title_details(client, token="t", media_type="movie", title_id=99999999)
+        await get_title_details(
+            client, token="t", media_type="movie", title_id=99999999
+        )
     except httpx.HTTPStatusError:
         return
     raise AssertionError("expected HTTPStatusError for 404")
