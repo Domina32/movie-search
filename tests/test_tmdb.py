@@ -2,6 +2,8 @@ from typing import Literal
 
 import httpx
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from ingest.tmdb import (
     DetailsMovieResponseData,
@@ -144,3 +146,65 @@ def test_normalize_title_tv_falls_back_to_creators() -> None:
     assert out["directors"] == ["Jonathan van Tulleken"]
     assert out["language_name"] == ""
     assert out["reviews"] == []
+
+
+member = st.fixed_dictionaries(
+    {"name": st.text(), "order": st.integers(min_value=0, max_value=50)}
+)
+partial_details = st.fixed_dictionaries(
+    {},
+    optional={
+        "id": st.integers(),
+        "title": st.text(),
+        "name": st.text(),
+        "original_language": st.text(),
+        "spoken_languages": st.lists(
+            st.fixed_dictionaries({"english_name": st.text()}), max_size=2
+        ),
+        "genres": st.lists(st.fixed_dictionaries({"name": st.text()}), max_size=10),
+        "release_date": st.text(),
+        "first_air_date": st.text(),
+        "credits": st.fixed_dictionaries(
+            {},
+            optional={
+                "cast": st.lists(member, max_size=20),
+                "crew": st.lists(
+                    st.fixed_dictionaries({"name": st.text(), "job": st.text()}),
+                    max_size=20,
+                ),
+            },
+        ),
+        "created_by": st.lists(st.fixed_dictionaries({"name": st.text()}), max_size=2),
+        "reviews": st.fixed_dictionaries(
+            {
+                "results": st.lists(
+                    st.fixed_dictionaries({"id": st.text(), "content": st.text()}),
+                    max_size=20,
+                )
+            }
+        ),
+    },
+)
+
+
+@pytest.mark.hypothesis
+@given(raw=partial_details)
+def test_normalize_title_never_crashes_on_partial_payload(
+    raw: DetailsTvResponseData | DetailsMovieResponseData,
+) -> None:
+    out = normalize_title(raw, "movie")
+    assert set(out) == {
+        "tmdb_id",
+        "fetched_at",
+        "media_type",
+        "title",
+        "original_language",
+        "language_name",
+        "genres",
+        "release_date",
+        "actors",
+        "directors",
+        "reviews",
+    }
+    assert len(out["actors"]) <= 5
+    assert isinstance(out["title"], str)
