@@ -1,25 +1,73 @@
 """Postgres engine and title/review writes."""
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import Engine
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from config import get_database_url
 from db.models import Review, Title
 from ingest.tmdb import (
     NormalizedTitleResultData,
 )
 
 
+class AsyncDatabase:
+    """
+    Async engine and session factory singleton.
+    """
+
+    def __init__(self) -> None:
+        self._engine: AsyncEngine | None = None
+        self._factory: async_sessionmaker[AsyncSession] | None = None
+
+    def factory(self) -> async_sessionmaker[AsyncSession]:
+        if self._factory is None:
+            self._engine = create_async_engine(get_database_url(), pool_pre_ping=True)
+            self._factory = async_sessionmaker(
+                self._engine, class_=AsyncSession, expire_on_commit=False
+            )
+        return self._factory
+
+    async def dispose(self) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+            self._factory = None
+
+
+async_db = AsyncDatabase()
+
+
+def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    return async_db.factory()
+
+
+async def get_async_session() -> AsyncIterator[AsyncSession]:
+    async with async_db.factory()() as session:
+        yield session
+
+
 def get_engine(dsn: str) -> Engine:
-    """Create engine. One per process; callers manage lifetime."""
+    """
+    Create engine. One per process; callers manage lifetime.
+    """
     return create_engine(dsn, pool_pre_ping=True)
 
 
 def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
-    """Upsert one title + its reviews. Caller commits. Returns title id."""
+    """
+    Upsert one title + its reviews. Caller commits. Returns title id.
+    """
     title = record["title"]
 
     payload = Title(**title)

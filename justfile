@@ -1,4 +1,4 @@
-set dotenv-load := true
+set dotenv-load
 
 _default:
     @just --list --unsorted
@@ -17,6 +17,9 @@ test-fast:
 lint:
     uv run ruff check src tests
     uv run ruff format --check src tests
+
+lint-fix:
+    uv run ruff check --fix
 
 typecheck:
     uv run pyrefly check src tests
@@ -39,6 +42,10 @@ migrate: db
 
 # -- App scripts --------------------------------------------------------
 
-# Ingest trending into Postgres. Needs `just db` first.
+# Ingest trending into Postgres.
 fetch-titles: db migrate
     PYTHONPATH=src uv run python -m ingest.runner
+
+# Serve async API.
+api: db migrate
+    PYTHONPATH=src uv run uvicorn api.routes:app --reload --port 8001
