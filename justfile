@@ -33,8 +33,12 @@ db:
 db-down:
     docker stop movie-pg
 
+# Apply migrations. Needs DB up.
+migrate: db
+    PYTHONPATH=src uv run alembic upgrade head
+
 # -- App scripts --------------------------------------------------------
 
 # Ingest trending into Postgres. Needs `just db` first.
-fetch-titles: db
+fetch-titles: db migrate
     PYTHONPATH=src uv run python -m ingest.runner
