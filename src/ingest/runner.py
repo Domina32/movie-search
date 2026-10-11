@@ -6,7 +6,7 @@ from typing import Any, Literal
 import httpx
 
 from config import LOG, get_database_url, get_max_pages, get_tmdb_read_token
-from db.session import ensure_schema, get_engine, store_titles
+from db.session import get_engine, store_titles
 from ingest.tmdb import (
     NormalizedTitleResultData,
     get_title_details,
@@ -44,9 +44,6 @@ async def fetch_titles(max_pages: int | None = None) -> None:
     token = get_tmdb_read_token()
     media_types: tuple[Literal["movie", "tv"], ...] = ("movie", "tv")
     engine = get_engine(get_database_url())
-    ensure_schema(engine)  # dev-only; Alembic owns prod schema
-
-    records: list[NormalizedTitleResultData] = []
 
     async with httpx.AsyncClient() as client:
         for media_type in media_types:
@@ -77,11 +74,12 @@ async def fetch_titles(max_pages: int | None = None) -> None:
                         _task = tg.create_task(task)
                         titles.append(_task)
 
+                batch: list[NormalizedTitleResultData] = []
                 for title_task in titles:
                     record = title_task.result()
                     if record is None:
                         continue
-                    records.append(record)
+                    batch.append(record)
                     LOG.debug(
                         "%s | %s (%s) | %s | %d reviews",
                         record["title"]["title"],
@@ -91,8 +89,8 @@ async def fetch_titles(max_pages: int | None = None) -> None:
                         len(record["reviews"]),
                     )
 
-                if records:
-                    stored = store_titles(engine, records)
+                if batch:
+                    stored = store_titles(engine, batch)
                     LOG.debug(
                         "Stored type=%s page=%d rows=%d",
                         media_type,
