@@ -53,6 +53,12 @@ def get_database_url() -> str:
     return dsn
 
 
-# Scaffold leftover (was package __init__ before flat-layout move). Remove later.
-def hello(name: str) -> str:
-    return f"Hello, {name}!"
+def get_voyage_api_key() -> str:
+    key = os.getenv("VOYAGEAI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("Missing VOYAGEAI_API_KEY. Set it in .env or environment.")
+    return key
+
+
+def get_chroma_path() -> str:
+    return os.getenv("CHROMA_PATH", "./data/chroma").strip() or "./data/chroma"
