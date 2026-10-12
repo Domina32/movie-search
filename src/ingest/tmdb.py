@@ -5,9 +5,11 @@ from typing import Literal, TypedDict, cast
 
 import httpx
 
-from config import LOG
+from config import LOG, pretty_format
 
 BASE_URL = "https://api.themoviedb.org/3"
+
+DIRECTOR_JOBS = frozenset({"Director", "Co-Director", "Series Director"})
 
 
 class GenreResponseData(TypedDict):
@@ -95,9 +97,12 @@ class NormalizedGenreData(TypedDict):
     name: str
 
 
-class NormalizedPersonData(TypedDict):
+class NormalizedCreditsMemberData(TypedDict):
     id: int
+    role: Literal["actor", "director"]
     name: str
+    order: int | None
+    job: str | None
 
 
 class NormalizedTitleData(TypedDict):
@@ -114,8 +119,8 @@ class NormalizedTitleResultData(TypedDict):
     title: NormalizedTitleData
     reviews: list[NormalizedReviewData]
     genres: list[NormalizedGenreData]
-    cast_members: list[NormalizedPersonData]
-    directors: list[NormalizedPersonData]
+    actors: list[NormalizedCreditsMemberData]
+    directors: list[NormalizedCreditsMemberData]
 
 
 async def get_trending(
@@ -173,13 +178,35 @@ def normalize_title(
     if not isinstance(raw_id, int):
         return None
 
-    cast_list: list[NormalizedPersonData] = []
-    directors: list[NormalizedPersonData] = []
-    # plan b for tv shows with no directors:
-    # credit creators instead which is tv show equivalent.
-    # cast: callers pass the TV shape when media_type == "tv",
-    # which the checker cannot infer from the sibling parameter.
-    # TODO
+    actors: list[NormalizedCreditsMemberData] = []
+    directors: list[NormalizedCreditsMemberData] = []
+    credits = raw.get("credits") or {}
+    crew = credits.get("crew") or []
+    # get creators for tv shows, not directors of individual episodes
+    if "created_by" in raw:
+        creators = cast("DetailsTvResponseData", raw).get("created_by")
+        directors = [
+            {
+                "id": member.get("id"),
+                "role": "director",
+                "name": (member.get("name") or "").strip(),
+                "order": None,
+                "job": None,
+            }
+            for member in creators
+        ]
+    else:
+        directors = [
+            {
+                "id": member.get("id"),
+                "role": "director",
+                "name": (member.get("name") or "").strip(),
+                "order": None,
+                "job": member.get("job"),
+            }
+            for member in crew
+            if member.get("job") in DIRECTOR_JOBS
+        ]
 
     # get human readable language name
     spoken = raw.get("spoken_languages") or []
@@ -212,6 +239,7 @@ def normalize_title(
     else:
         title = cast("DetailsTvResponseData", raw).get("name") or ""
         release_date = cast("DetailsTvResponseData", raw).get("first_air_date") or ""
+        LOG.info(pretty_format(raw))
 
     return {
         "title": {
@@ -225,6 +253,6 @@ def normalize_title(
         },
         "reviews": reviews,
         "genres": genres,
-        "cast_members": cast_list,
+        "actors": actors,
         "directors": directors,
     }
