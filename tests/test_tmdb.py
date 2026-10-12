@@ -125,6 +125,7 @@ def test_normalize_title_movie() -> None:
     assert out["title"]["language_name"] == "English"
     assert out["title"]["release_date"] == "2021-09-15"
     assert out["reviews"] == [{"id": "r1", "content": "Great film"}]
+    assert out["genres"] == [{"id": 0, "name": "Sci-Fi"}]
 
 
 def test_normalize_title_tv_falls_back_to_creators() -> None:
@@ -193,5 +194,5 @@ def test_normalize_title_never_crashes_on_partial_payload(
     out = normalize_title(raw, "movie")  # type: ignore[arg-type]
     if out is None:
         return
-    assert set(out) == {"title", "reviews"}
+    assert set(out) == {"title", "reviews", "genres", "cast_members", "directors"}
     assert isinstance(out["title"]["title"], str)

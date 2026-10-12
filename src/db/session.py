@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from config import get_database_url
-from db.models import Review, Title
+from db.models import (
+    Genre,
+    Review,
+    Title,
+    TitleGenreLink,
+)
 from ingest.tmdb import (
     NormalizedTitleResultData,
 )
@@ -66,7 +71,7 @@ def get_engine(dsn: str) -> Engine:
 
 def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
     """
-    Upsert one title + its reviews. Caller commits. Returns title id.
+    Upsert one title with its genres and reviews. Caller commits.
     """
     title = record["title"]
 
@@ -103,6 +108,21 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
             insert(Review)
             .values(review_rows)
             .on_conflict_do_nothing(index_elements=["id"])
+        )
+
+    genre_rows = [{"id": g["id"], "name": g["name"]} for g in record.get("genres", [])]
+    if genre_rows:
+        upsert_genres = insert(Genre).values(genre_rows)
+        session.exec(
+            upsert_genres.on_conflict_do_update(
+                index_elements=["id"],
+                set_={"name": upsert_genres.excluded.name},
+            )
+        )
+        session.exec(
+            insert(TitleGenreLink)
+            .values([{"title_id": title_id, "genre_id": g["id"]} for g in genre_rows])
+            .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
         )
 
     return title_id
