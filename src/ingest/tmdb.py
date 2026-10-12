@@ -90,6 +90,16 @@ class NormalizedReviewData(TypedDict):
     content: str
 
 
+class NormalizedGenreData(TypedDict):
+    id: int
+    name: str
+
+
+class NormalizedPersonData(TypedDict):
+    id: int
+    name: str
+
+
 class NormalizedTitleData(TypedDict):
     tmdb_id: int
     title: str
@@ -103,9 +113,9 @@ class NormalizedTitleData(TypedDict):
 class NormalizedTitleResultData(TypedDict):
     title: NormalizedTitleData
     reviews: list[NormalizedReviewData]
-    # genres: list[str]
-    # actors: list[str]
-    # directors: list[str]
+    genres: list[NormalizedGenreData]
+    cast_members: list[NormalizedPersonData]
+    directors: list[NormalizedPersonData]
 
 
 async def get_trending(
@@ -162,34 +172,28 @@ def normalize_title(
     raw_id = raw.get("id")
     if not isinstance(raw_id, int):
         return None
-    credits = raw.get("credits") or {}
-    cast_members = credits.get("cast") or []
-    crew = credits.get("crew") or []
 
-    actors = [
-        member.get("name", "")
-        for member in sorted(cast_members, key=lambda x: x.get("order", 999))
-        if member.get("name")
-    ][:5]
-
-    directors = [
-        member.get("name", "")
-        for member in crew
-        if member.get("job") == "Director" and member.get("name")
-    ]
+    cast_list: list[NormalizedPersonData] = []
+    directors: list[NormalizedPersonData] = []
     # plan b for tv shows with no directors:
     # credit creators instead which is tv show equivalent.
     # cast: callers pass the TV shape when media_type == "tv",
     # which the checker cannot infer from the sibling parameter.
-    if not directors and media_type == "tv":
-        created = cast("DetailsTvResponseData", raw).get("created_by") or []
-        directors = [member.get("name", "") for member in created if member.get("name")]
+    # TODO
 
     # get human readable language name
     spoken = raw.get("spoken_languages") or []
     language_name = spoken[0].get("english_name", "") if spoken else ""
 
-    genres = [g.get("name", "") for g in (raw.get("genres") or []) if g.get("name")]
+    genres: list[NormalizedGenreData] = []
+    seen_genre_ids: set[int] = set()
+    for g in raw.get("genres") or []:
+        gid = g.get("id")
+        gname = (g.get("name") or "").strip()
+        if not isinstance(gid, int) or not gname or gid in seen_genre_ids:
+            continue
+        seen_genre_ids.add(gid)
+        genres.append({"id": gid, "name": gname})
 
     reviews_block = raw.get("reviews") or {}
     review_items = reviews_block.get("results") or []
@@ -209,21 +213,18 @@ def normalize_title(
         title = cast("DetailsTvResponseData", raw).get("name") or ""
         release_date = cast("DetailsTvResponseData", raw).get("first_air_date") or ""
 
-    t: NormalizedTitleData = {
-        "tmdb_id": raw_id,
-        "title": title,
-        "original_language": raw.get("original_language", ""),
-        "language_name": language_name,
-        "release_date": release_date,
-        "fetched_at": datetime.now(UTC).isoformat(),
-        "media_type": media_type,
-    }
-    _rest = {
-        "genres": genres,
-        "actors": actors,
-        "directors": directors,
-    }
     return {
-        "title": t,
+        "title": {
+            "tmdb_id": raw_id,
+            "title": title,
+            "original_language": raw.get("original_language", ""),
+            "language_name": language_name,
+            "release_date": release_date,
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "media_type": media_type,
+        },
         "reviews": reviews,
+        "genres": genres,
+        "cast_members": cast_list,
+        "directors": directors,
     }

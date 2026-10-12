@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy.orm import Mapped
 from sqlmodel import Field, SQLModel
 from sqlmodel.main import Relationship
 
@@ -21,32 +22,6 @@ class MediaType(enum.StrEnum):
 #     director = "director"
 
 
-# class GenreBase(SQLModel):
-#     name: str = Field(max_length=64)
-#
-#
-# class Genre(GenreBase, table=True):
-#     id: int = Field(primary_key=True)
-#
-#
-# class GenrePublic(GenreBase):
-#     id: int
-#
-#
-# class PersonBase(SQLModel):
-#     name: str = Field(max_length=255)
-#
-#
-# class Person(PersonBase, table=True):
-#     id: int = Field(primary_key=True)
-#
-#
-# class PersonPublic(PersonBase):
-#     id: int
-#
-#
-
-
 class TitleBase(SQLModel):
     tmdb_id: int
     media_type: MediaType = Field(max_length=16)
@@ -60,15 +35,27 @@ class TitleBase(SQLModel):
     )
 
 
+class TitleGenreLink(SQLModel, table=True):
+    title_id: uuid.UUID = Field(
+        foreign_key="title.id", primary_key=True, ondelete="CASCADE"
+    )
+    genre_id: int = Field(foreign_key="genre.id", primary_key=True, ondelete="CASCADE")
+
+
 class Title(TitleBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-
     # ids can repeat on /movies and /tv so we need to include
     # media_type marker on each title entity
     __table_args__ = (
         UniqueConstraint("tmdb_id", "media_type", name="uq_title_tmdb_media"),
     )
-    reviews: list["Review"] = Relationship(back_populates="title")  # noqa: UP037 - forward ref, Review defined below
+    genres: Mapped[list[Genre]] = Relationship(
+        back_populates="titles",
+        link_model=TitleGenreLink,
+    )
+    reviews: Mapped[list[Review]] = Relationship(
+        back_populates="title", cascade_delete=True
+    )
 
 
 class TitlePublic(TitleBase):
@@ -78,6 +65,21 @@ class TitlePublic(TitleBase):
 class TitlesPublic(SQLModel):
     data: list[TitlePublic]
     count: int
+
+
+class GenreBase(SQLModel):
+    name: str = Field(max_length=64)
+
+
+class Genre(GenreBase, table=True):
+    id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": False})
+    titles: list[Title] = Relationship(
+        back_populates="genres", link_model=TitleGenreLink
+    )
+
+
+class GenrePublic(GenreBase):
+    id: int
 
 
 class ReviewBase(SQLModel):
@@ -97,3 +99,10 @@ class Review(ReviewBase, table=True):
 class ReviewPublic(ReviewBase):
     id: str
     title_id: uuid.UUID
+
+
+class TitleDetailPublic(TitlePublic):
+    genres: list[GenrePublic] = []
+    # cast_members: list[PersonPublic] = []
+    # directors: list[PersonPublic] = []
+    reviews: list[ReviewPublic] = []

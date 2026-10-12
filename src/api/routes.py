@@ -5,9 +5,10 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from db.models import Title, TitlePublic, TitlesPublic
+from db.models import Title, TitleDetailPublic, TitlePublic, TitlesPublic
 from db.session import async_db, get_async_session
 
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -41,12 +42,22 @@ async def list_titles(
     )
 
 
-@app.get("/titles/{title_id}", response_model=TitlePublic)
+@app.get("/titles/{title_id}", response_model=TitleDetailPublic)
 async def get_title(
     title_id: UUID,
     session: SessionDep,
-) -> TitlePublic:
-    row = await session.get(Title, title_id)
+) -> TitleDetailPublic:
+    result = await session.execute(
+        select(Title)
+        .where(Title.id == title_id)
+        .options(
+            selectinload(Title.genres),
+            # selectinload(Title.cast_members),
+            # selectinload(Title.directors),
+            selectinload(Title.reviews),
+        )
+    )
+    row = result.scalars().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Title not found")
-    return TitlePublic.model_validate(row)
+    return TitleDetailPublic.model_validate(row)
