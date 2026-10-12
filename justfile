@@ -49,3 +49,20 @@ fetch-titles: db migrate
 # Serve async API.
 api: db migrate
     PYTHONPATH=src uv run uvicorn api.routes:app --reload --port 8001
+
+# ── DB reset (dev) ───────────────────────────────────────────────────
+
+# Wipe DB clean (keeps container). Dev only!
+db-nuke:
+    docker exec movie-pg psql -U postgres -d movie_search -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;"
+
+# New migration from src/db/models.py. Usage: just db-revision "add foo"
+db-revision msg="initial schema":
+    PYTHONPATH=src uv run alembic revision --autogenerate -m "{{msg}}"
+
+# Full fresh start (for right now): nuke + new revision + apply
+db-fresh msg="initial schema":
+    just db-nuke
+    PYTHONPATH=src uv run alembic revision --autogenerate -m "{{msg}}"
+    PYTHONPATH=src uv run alembic upgrade head
+    docker exec movie-pg psql -U postgres -d movie_search -c '\dt'
