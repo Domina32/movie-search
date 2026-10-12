@@ -97,12 +97,15 @@ class NormalizedGenreData(TypedDict):
     name: str
 
 
-class NormalizedCreditsMemberData(TypedDict):
+class NormalizedDirectorData(TypedDict):
     id: int
-    role: Literal["actor", "director"]
     name: str
-    order: int | None
-    job: str | None
+
+
+class NormalizedActorData(TypedDict):
+    id: int
+    name: str
+    order: int
 
 
 class NormalizedTitleData(TypedDict):
@@ -119,8 +122,8 @@ class NormalizedTitleResultData(TypedDict):
     title: NormalizedTitleData
     reviews: list[NormalizedReviewData]
     genres: list[NormalizedGenreData]
-    actors: list[NormalizedCreditsMemberData]
-    directors: list[NormalizedCreditsMemberData]
+    actors: list[NormalizedActorData]
+    directors: list[NormalizedDirectorData]
 
 
 async def get_trending(
@@ -178,33 +181,42 @@ def normalize_title(
     if not isinstance(raw_id, int):
         return None
 
-    actors: list[NormalizedCreditsMemberData] = []
-    directors: list[NormalizedCreditsMemberData] = []
+    actors: list[NormalizedActorData] = []
+    directors: list[NormalizedDirectorData] = []
     credits = raw.get("credits") or {}
-    crew = credits.get("crew") or []
+    crew_members = credits.get("crew") or []
+    cast_members = credits.get("cast") or []
+    actors = sorted(
+        [
+            {
+                "id": member["id"],
+                "name": (member.get("name") or "").strip(),
+                "order": member.get("order"),
+            }
+            for member in cast_members
+            if "id" in member
+        ],
+        key=lambda m: m["order"],
+    )
     # get creators for tv shows, not directors of individual episodes
     if "created_by" in raw:
         creators = cast("DetailsTvResponseData", raw).get("created_by")
         directors = [
             {
-                "id": member.get("id"),
-                "role": "director",
+                "id": member["id"],
                 "name": (member.get("name") or "").strip(),
-                "order": None,
-                "job": None,
             }
             for member in creators
+            if "id" in member
         ]
     else:
         directors = [
             {
-                "id": member.get("id"),
-                "role": "director",
+                "id": member["id"],
                 "name": (member.get("name") or "").strip(),
-                "order": None,
-                "job": member.get("job"),
             }
-            for member in crew
+            for member in crew_members
+            if "id" in member
             if member.get("job") in DIRECTOR_JOBS
         ]
 
@@ -212,15 +224,14 @@ def normalize_title(
     spoken = raw.get("spoken_languages") or []
     language_name = spoken[0].get("english_name", "") if spoken else ""
 
-    genres: list[NormalizedGenreData] = []
-    seen_genre_ids: set[int] = set()
-    for g in raw.get("genres") or []:
-        gid = g.get("id")
-        gname = (g.get("name") or "").strip()
-        if not isinstance(gid, int) or not gname or gid in seen_genre_ids:
-            continue
-        seen_genre_ids.add(gid)
-        genres.append({"id": gid, "name": gname})
+    genres: list[NormalizedGenreData] = [
+        {
+            "id": genre["id"],
+            "name": genre["name"].strip(),
+        }
+        for genre in raw.get("genres") or []
+        if "id" in genre and genre.get("name")
+    ]
 
     reviews_block = raw.get("reviews") or {}
     review_items = reviews_block.get("results") or []
@@ -253,6 +264,6 @@ def normalize_title(
         },
         "reviews": reviews,
         "genres": genres,
-        "actors": actors,
+        "actors": actors[:5],
         "directors": directors,
     }

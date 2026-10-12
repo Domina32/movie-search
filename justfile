@@ -61,8 +61,7 @@ db-revision msg="initial schema":
     PYTHONPATH=src uv run alembic revision --autogenerate -m "{{ msg }}"
 
 # Full fresh start
-db-fresh msg="initial schema":
+db-fresh:
     just db-nuke
-    just db-revision "{{ msg }}"
     PYTHONPATH=src uv run alembic upgrade head
     docker exec movie-pg psql -U postgres -d movie_search -c '\dt'

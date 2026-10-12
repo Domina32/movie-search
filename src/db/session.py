@@ -16,10 +16,12 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from config import get_database_url
 from db.models import (
+    Actor,
     Director,
     Genre,
     Review,
     Title,
+    TitleActorLink,
     TitleDirectorLink,
     TitleGenreLink,
 )
@@ -125,6 +127,27 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
             insert(TitleGenreLink)
             .values([{"title_id": title_id, "genre_id": g["id"]} for g in genre_rows])
             .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
+        )
+
+    actor_rows = [
+        {"id": a["id"], "name": a["name"], "order": a["order"]}
+        for a in record.get("actors", [])
+    ]
+    if actor_rows:
+        upsert_actors = insert(Actor).values(actor_rows)
+        session.exec(
+            upsert_actors.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "name": upsert_actors.excluded.name,
+                    "order": upsert_actors.excluded.order,
+                },
+            )
+        )
+        session.exec(
+            insert(TitleActorLink)
+            .values([{"title_id": title_id, "actor_id": a["id"]} for a in actor_rows])
+            .on_conflict_do_nothing(index_elements=["title_id", "actor_id"])
         )
 
     director_rows = [
