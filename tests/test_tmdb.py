@@ -194,5 +194,5 @@ def test_normalize_title_never_crashes_on_partial_payload(
     out = normalize_title(raw, "movie")  # type: ignore[arg-type]
     if out is None:
         return
-    assert set(out) == {"title", "reviews", "genres", "cast_members", "directors"}
+    assert set(out) == {"title", "reviews", "genres", "actors", "directors"}
     assert isinstance(out["title"]["title"], str)

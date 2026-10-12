@@ -42,6 +42,13 @@ class TitleGenreLink(SQLModel, table=True):
     genre_id: int = Field(foreign_key="genre.id", primary_key=True, ondelete="CASCADE")
 
 
+class TitleActorLink(SQLModel, table=True):
+    title_id: uuid.UUID = Field(
+        foreign_key="title.id", primary_key=True, ondelete="CASCADE"
+    )
+    actor_id: int = Field(foreign_key="actor.id", primary_key=True, ondelete="CASCADE")
+
+
 class TitleDirectorLink(SQLModel, table=True):
     title_id: uuid.UUID = Field(
         foreign_key="title.id", primary_key=True, ondelete="CASCADE"
@@ -64,6 +71,9 @@ class Title(TitleBase, table=True):
     )
     reviews: Mapped[list[Review]] = Relationship(
         back_populates="title", cascade_delete=True
+    )
+    actors: Mapped[list[Actor]] = Relationship(
+        back_populates="titles", link_model=TitleActorLink
     )
     directors: Mapped[list[Director]] = Relationship(
         back_populates="titles", link_model=TitleDirectorLink
@@ -128,21 +138,24 @@ class DirectorPublic(DirectorBase):
     pass
 
 
-# class ActorBase(SQLModel):
-#     name: str = Field(max_length=128)
-#     order: int | None = Field(default=None)
-#
-#
-# class Actor(ActorBase, table=True):
-#     id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": False})
-#
-#
-# class ActorPublic(ActorBase):
-#     pass
+class ActorBase(SQLModel):
+    name: str = Field(max_length=128)
+    order: int | None = Field(default=None)
+
+
+class Actor(ActorBase, table=True):
+    id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": False})
+    titles: list[Title] = Relationship(
+        back_populates="actors", link_model=TitleActorLink
+    )
+
+
+class ActorPublic(ActorBase):
+    pass
 
 
 class TitleDetailPublic(TitlePublic):
     genres: list[GenrePublic] = []
-    # actors: list[ActorPublic] = []
+    actors: list[ActorPublic] = []
     directors: list[DirectorPublic] = []
     reviews: list[ReviewPublic] = []
