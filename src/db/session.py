@@ -16,9 +16,11 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from config import get_database_url
 from db.models import (
+    Director,
     Genre,
     Review,
     Title,
+    TitleDirectorLink,
     TitleGenreLink,
 )
 from ingest.tmdb import (
@@ -123,6 +125,24 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
             insert(TitleGenreLink)
             .values([{"title_id": title_id, "genre_id": g["id"]} for g in genre_rows])
             .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
+        )
+
+    director_rows = [
+        {"id": d["id"], "name": d["name"]} for d in record.get("directors", [])
+    ]
+    if director_rows:
+        upsert_directors = insert(Director).values(director_rows)
+        session.exec(
+            upsert_directors.on_conflict_do_update(
+                index_elements=["id"], set_={"name": upsert_directors.excluded.name}
+            )
+        )
+        session.exec(
+            insert(TitleDirectorLink)
+            .values(
+                [{"title_id": title_id, "director_id": d["id"]} for d in director_rows]
+            )
+            .on_conflict_do_nothing(index_elements=["title_id", "director_id"])
         )
 
     return title_id

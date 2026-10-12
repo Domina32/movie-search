@@ -58,11 +58,11 @@ db-nuke:
 
 # New migration from src/db/models.py. Usage: just db-revision "add foo"
 db-revision msg="initial schema":
-    PYTHONPATH=src uv run alembic revision --autogenerate -m "{{msg}}"
+    PYTHONPATH=src uv run alembic revision --autogenerate -m "{{ msg }}"
 
-# Full fresh start (for right now): nuke + new revision + apply
+# Full fresh start
 db-fresh msg="initial schema":
     just db-nuke
-    PYTHONPATH=src uv run alembic revision --autogenerate -m "{{msg}}"
+    just db-revision "{{ msg }}"
     PYTHONPATH=src uv run alembic upgrade head
     docker exec movie-pg psql -U postgres -d movie_search -c '\dt'

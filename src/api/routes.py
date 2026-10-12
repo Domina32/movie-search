@@ -52,8 +52,8 @@ async def get_title(
         .where(Title.id == title_id)
         .options(
             selectinload(Title.genres),
-            # selectinload(Title.cast_members),
-            # selectinload(Title.directors),
+            # selectinload(Title.actors),
+            selectinload(Title.directors),
             selectinload(Title.reviews),
         )
     )

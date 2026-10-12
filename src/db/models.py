@@ -17,9 +17,9 @@ class MediaType(enum.StrEnum):
     tv = "tv"
 
 
-# class CreditRole(enum.StrEnum):
-#     actor = "actor"
-#     director = "director"
+class CreditsRole(enum.StrEnum):
+    actor = "actor"
+    director = "director"
 
 
 class TitleBase(SQLModel):
@@ -42,6 +42,15 @@ class TitleGenreLink(SQLModel, table=True):
     genre_id: int = Field(foreign_key="genre.id", primary_key=True, ondelete="CASCADE")
 
 
+class TitleDirectorLink(SQLModel, table=True):
+    title_id: uuid.UUID = Field(
+        foreign_key="title.id", primary_key=True, ondelete="CASCADE"
+    )
+    director_id: int = Field(
+        foreign_key="director.id", primary_key=True, ondelete="CASCADE"
+    )
+
+
 class Title(TitleBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     # ids can repeat on /movies and /tv so we need to include
@@ -55,6 +64,9 @@ class Title(TitleBase, table=True):
     )
     reviews: Mapped[list[Review]] = Relationship(
         back_populates="title", cascade_delete=True
+    )
+    directors: Mapped[list[Director]] = Relationship(
+        back_populates="titles", link_model=TitleDirectorLink
     )
 
 
@@ -101,8 +113,36 @@ class ReviewPublic(ReviewBase):
     title_id: uuid.UUID
 
 
+class DirectorBase(SQLModel):
+    name: str = Field(max_length=128)
+
+
+class Director(DirectorBase, table=True):
+    id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": False})
+    titles: list[Title] = Relationship(
+        back_populates="directors", link_model=TitleDirectorLink
+    )
+
+
+class DirectorPublic(DirectorBase):
+    pass
+
+
+# class ActorBase(SQLModel):
+#     name: str = Field(max_length=128)
+#     order: int | None = Field(default=None)
+#
+#
+# class Actor(ActorBase, table=True):
+#     id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": False})
+#
+#
+# class ActorPublic(ActorBase):
+#     pass
+
+
 class TitleDetailPublic(TitlePublic):
     genres: list[GenrePublic] = []
-    # cast_members: list[PersonPublic] = []
-    # directors: list[PersonPublic] = []
+    # actors: list[ActorPublic] = []
+    directors: list[DirectorPublic] = []
     reviews: list[ReviewPublic] = []

@@ -1,7 +1,18 @@
 import logging
 import os
+import pprint
+from typing import Any
 
 from dotenv import load_dotenv
+
+# set up pretty printer
+pp = pprint.PrettyPrinter(indent=2, sort_dicts=False)
+
+
+def pretty_format(obj: Any):
+    pretty_out = f"{pp.pformat(obj)}"
+    return f"{pretty_out}\n"
+
 
 load_dotenv()
 
