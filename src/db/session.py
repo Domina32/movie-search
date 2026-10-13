@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import SQLModel, create_engine, select
 
 from config import get_database_url
 from db.models import (
@@ -73,7 +73,7 @@ def get_engine(dsn: str) -> Engine:
     return create_engine(dsn, pool_pre_ping=True)
 
 
-def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
+async def store_title(session: AsyncSession, record: NormalizedTitleResultData) -> UUID:
     """
     Upsert one title with its genres and reviews. Caller commits.
     """
@@ -95,20 +95,22 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
             },
         )
     )
-    session.exec(upsert)
-    title_id = session.exec(
-        select(Title.id).where(
-            Title.tmdb_id == payload.tmdb_id,
-            Title.media_type == payload.media_type,
+    await session.execute(upsert)
+    title_id = (
+        await session.execute(
+            select(Title.id).where(
+                Title.tmdb_id == payload.tmdb_id,
+                Title.media_type == payload.media_type,
+            )
         )
-    ).one()
+    ).scalar_one()
 
     review_rows = [
         {"id": r["id"], "title_id": title_id, "content": r["content"]}
         for r in record.get("reviews", [])
     ]
     if review_rows:
-        session.exec(
+        await session.execute(
             insert(Review)
             .values(review_rows)
             .on_conflict_do_nothing(index_elements=["id"])
@@ -117,13 +119,13 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
     genre_rows = [{"id": g["id"], "name": g["name"]} for g in record.get("genres", [])]
     if genre_rows:
         upsert_genres = insert(Genre).values(genre_rows)
-        session.exec(
+        await session.execute(
             upsert_genres.on_conflict_do_update(
                 index_elements=["id"],
                 set_={"name": upsert_genres.excluded.name},
             )
         )
-        session.exec(
+        await session.execute(
             insert(TitleGenreLink)
             .values([{"title_id": title_id, "genre_id": g["id"]} for g in genre_rows])
             .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
@@ -135,7 +137,7 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
     ]
     if actor_rows:
         upsert_actors = insert(Actor).values(actor_rows)
-        session.exec(
+        await session.execute(
             upsert_actors.on_conflict_do_update(
                 index_elements=["id"],
                 set_={
@@ -144,7 +146,7 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
                 },
             )
         )
-        session.exec(
+        await session.execute(
             insert(TitleActorLink)
             .values([{"title_id": title_id, "actor_id": a["id"]} for a in actor_rows])
             .on_conflict_do_nothing(index_elements=["title_id", "actor_id"])
@@ -155,12 +157,12 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
     ]
     if director_rows:
         upsert_directors = insert(Director).values(director_rows)
-        session.exec(
+        await session.execute(
             upsert_directors.on_conflict_do_update(
                 index_elements=["id"], set_={"name": upsert_directors.excluded.name}
             )
         )
-        session.exec(
+        await session.execute(
             insert(TitleDirectorLink)
             .values(
                 [{"title_id": title_id, "director_id": d["id"]} for d in director_rows]
@@ -171,13 +173,14 @@ def store_title(session: Session, record: NormalizedTitleResultData) -> UUID:
     return title_id
 
 
-def store_titles(engine: Engine, records: list[NormalizedTitleResultData]) -> int:
-    """Store a batch in one transaction. Returns titles written."""
-    with Session(engine) as session:
+async def store_titles(records: list[NormalizedTitleResultData]) -> list[UUID]:
+    """Store a batch in one transaction. Returns title UUIDs in input order."""
+    ids: list[UUID] = []
+    async with async_db.factory()() as session:
         for record in records:
-            store_title(session, record)
-        session.commit()
-    return len(records)
+            ids.append(await store_title(session, record))
+        await session.commit()
+    return ids
 
 
 def ensure_schema(engine: Engine) -> None:
