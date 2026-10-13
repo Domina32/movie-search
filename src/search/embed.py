@@ -3,6 +3,7 @@
 import os
 import time
 
+from numpy import ndarray
 from sentence_transformers import SentenceTransformer
 
 from config import LOG
@@ -11,6 +12,7 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 EMBED_BATCH = 100
 # bge-small context is 512 tokens
 MAX_CHARS = 2000
+QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
 class LocalEmbedder:
@@ -35,7 +37,7 @@ def get_embedder() -> SentenceTransformer:
     return embedder.model()
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str]) -> ndarray:
     """
     Embed one batch of review contents. Order preserved.
     """
@@ -48,11 +50,18 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         normalize_embeddings=True,
         convert_to_numpy=True,
     )
-    return [[float(value) for value in row] for row in vectors.tolist()]
+    return vectors
 
 
 def is_model_loaded() -> bool:
     return embedder.is_loaded()
+
+
+def embed_query(text: str) -> list[float]:
+    """
+    Embed a single search query with the BGE retrieval prefix.
+    """
+    return embed_texts([QUERY_PREFIX + text[:MAX_CHARS]])[0]
 
 
 def preload_embed_model() -> None:
