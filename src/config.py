@@ -18,7 +18,7 @@ load_dotenv()
 
 LOG = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.basicConfig(level=logging.DEBUG, format="%(message)s")
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def get_tmdb_read_token(token: str | None = None) -> str:
@@ -64,12 +64,9 @@ def get_database_url() -> str:
     return dsn
 
 
-def get_voyage_api_key() -> str:
-    key = os.getenv("VOYAGEAI_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("Missing VOYAGEAI_API_KEY. Set it in .env or environment.")
-    return key
-
-
 def get_chroma_path() -> str:
     return os.getenv("CHROMA_PATH", "./data/chroma").strip() or "./data/chroma"
+
+
+def get_embed_model() -> str:
+    return os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5").strip()

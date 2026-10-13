@@ -154,7 +154,7 @@ async def get_title_details(
     """
     Get metadata for movie or tv show by id.
     """
-    LOG.debug(f"Fetching details for title id {title_id}.")
+    LOG.info(f"Fetching details for title id {title_id}.")
 
     response = await client.get(
         f"{BASE_URL}/{media_type}/{title_id}",
@@ -164,7 +164,7 @@ async def get_title_details(
     )
     response.raise_for_status()
 
-    LOG.debug(f"Fetched details for title id {title_id}.")
+    LOG.info(f"Fetched details for title id {title_id}.")
 
     return response.json()
 
@@ -250,7 +250,7 @@ def normalize_title(
     else:
         title = cast("DetailsTvResponseData", raw).get("name") or ""
         release_date = cast("DetailsTvResponseData", raw).get("first_air_date") or ""
-        LOG.info(pretty_format(raw))
+        LOG.debug(pretty_format(raw))
 
     return {
         "title": {

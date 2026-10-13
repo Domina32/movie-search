@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -10,12 +11,14 @@ from sqlmodel import select
 
 from db.models import Title, TitleDetailPublic, TitlePublic, TitlesPublic
 from db.session import async_db, get_async_session
+from search.embed import is_model_loaded, preload_embed_model
 
 SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+    await asyncio.to_thread(preload_embed_model)
     yield
     await async_db.dispose()
 
@@ -26,6 +29,13 @@ app = FastAPI(title="movie-search", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready() -> dict[str, str]:
+    if not is_model_loaded():
+        raise HTTPException(status_code=503, detail="embedding model not loaded")
+    return {"status": "ready"}
 
 
 @app.get("/titles", response_model=TitlesPublic)
