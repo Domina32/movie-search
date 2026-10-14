@@ -2,13 +2,13 @@
 
 from typing import Literal, TypedDict
 
-from chromadb import PersistentClient
-from chromadb.api import ClientAPI
-from chromadb.api.models.Collection import Collection
+from chromadb import AsyncHttpClient
+from chromadb.api.async_api import AsyncClientAPI
+from chromadb.api.models.AsyncCollection import AsyncCollection
 from chromadb.api.types import Where
 
-from config import LOG, get_chroma_path
-from search.embed import EMBED_BATCH, EMBED_MODEL, embed_texts
+from config import LOG, get_chroma_host_and_port
+from search.embed import EMBED_BATCH, embed_texts
 
 COLLECTION_NAME = "reviews"
 
@@ -22,21 +22,35 @@ class ReviewData(TypedDict):
     media_type: Literal["movie", "tv"]
 
 
-def initialize_chroma_client(path: str = get_chroma_path()):
-    return PersistentClient(path=path)
+class AsyncChromaClient:
+    def __init__(self, host: str, port: int, collection_name: str) -> None:
+        self.host: str = host
+        self.port: int = port
+        self.collection_name: str = collection_name
+        self._client: AsyncClientAPI | None = None
+        self._collection: AsyncCollection | None = None
+
+    async def connect(self) -> None:
+        if self._client is None:
+            self._client = await AsyncHttpClient(host=self.host, port=self.port)
+            self._collection = await self._client.get_or_create_collection(
+                name=self.collection_name
+            )
+
+    def get_collection(self) -> AsyncCollection:
+        if self._collection is None:
+            raise RuntimeError("ChromaDB has not been initialized")
+        return self._collection
 
 
-def get_chroma_collection(
-    client: ClientAPI, collection_name: str = COLLECTION_NAME
-) -> Collection:
-    collection = client.get_or_create_collection(
-        name=collection_name, metadata={"embedding_model": EMBED_MODEL}
-    )
-    return collection
+CHROMA_HOST, CHROMA_PORT = get_chroma_host_and_port()
+chroma = AsyncChromaClient(
+    host=CHROMA_HOST, port=CHROMA_PORT, collection_name="reviews"
+)
 
 
-def store_reviews(
-    collection: Collection, records: list[ReviewData] | None = None
+async def store_reviews(
+    collection: AsyncCollection, records: list[ReviewData] | None = None
 ) -> int:
     """
     Embed locally and upsert into Chroma.
@@ -47,7 +61,7 @@ def store_reviews(
     for start in range(0, len(records), EMBED_BATCH):
         batch = records[start : start + EMBED_BATCH]
         embeddings = embed_texts([record["content"] for record in batch])
-        collection.upsert(
+        await collection.upsert(
             ids=[record["id"] for record in batch],
             embeddings=embeddings,
             documents=[record["content"] for record in batch],
@@ -76,8 +90,8 @@ class ReviewHit(TypedDict):
     score: float
 
 
-def query_reviews(
-    collection: Collection,
+async def query_reviews(
+    collection: AsyncCollection,
     query_vector: list[float],
     n: int = 5,
     media_type: Literal["movie", "tv"] | None = None,
@@ -87,13 +101,13 @@ def query_reviews(
     Score = 1 - distance; kept hit per title is the best-ranked review.
     """
     where: Where | None = {"media_type": media_type} if media_type else None
-    total = collection.count()
+    total = await collection.count()
     if total == 0:
         return []
     best: dict[str, ReviewHit] = {}
     requested = n
     while len(best) < n and requested <= total:
-        response = collection.query(
+        response = await collection.query(
             query_embeddings=[query_vector],
             n_results=min(requested, total),
             where=where,

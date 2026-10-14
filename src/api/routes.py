@@ -12,8 +12,7 @@ from sqlmodel import SQLModel, select
 from db.models import Title, TitleDetailPublic, TitlePublic, TitlesPublic
 from db.session import async_db, get_async_session
 from ingest.chroma import (
-    get_chroma_collection,
-    initialize_chroma_client,
+    chroma,
     query_reviews,
 )
 from search.embed import embed_query, is_model_loaded, preload_embed_model
@@ -37,9 +36,9 @@ class SearchResponse(SQLModel):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     await asyncio.to_thread(preload_embed_model)
-    app.state.chroma_collection = get_chroma_collection(initialize_chroma_client())
+    await chroma.connect()
     yield
     await async_db.dispose()
 
@@ -103,7 +102,7 @@ async def search(
     if not is_model_loaded():
         raise HTTPException(status_code=503, detail="embedding model not loaded")
     query_vector = await asyncio.to_thread(embed_query, q)
-    hits = await asyncio.to_thread(
-        query_reviews, app.state.chroma_collection, query_vector, n, media_type
-    )
+    collection = chroma.get_collection()
+    hits = await query_reviews(collection, query_vector, n, media_type)
+
     return SearchResponse(query=q, results=[SearchResult(**hit) for hit in hits])

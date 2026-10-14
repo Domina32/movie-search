@@ -11,8 +11,7 @@ from config import LOG, get_max_pages, get_tmdb_read_token
 from db.session import async_db, store_titles
 from ingest.chroma import (
     ReviewData,
-    get_chroma_collection,
-    initialize_chroma_client,
+    chroma,
     store_reviews,
 )
 from ingest.tmdb import (
@@ -87,8 +86,8 @@ async def fetch_titles(max_pages: int | None = None) -> None:
 
     token = get_tmdb_read_token()
     media_types: tuple[Literal["movie", "tv"], ...] = ("movie", "tv")
-    chroma_client = initialize_chroma_client()
-    chroma_collection = get_chroma_collection(chroma_client)
+    await chroma.connect()
+    chroma_collection = chroma.get_collection()
 
     try:
         async with httpx.AsyncClient() as client:
@@ -152,7 +151,7 @@ async def fetch_titles(max_pages: int | None = None) -> None:
                             record["title"],
                         )
                     if review_batch:
-                        stored = store_reviews(chroma_collection, review_batch)
+                        stored = await store_reviews(chroma_collection, review_batch)
                         LOG.debug(f"Stored {stored}")
     finally:
         await async_db.dispose()
