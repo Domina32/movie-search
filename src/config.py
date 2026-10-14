@@ -5,7 +5,6 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-# set up pretty printer
 pp = pprint.PrettyPrinter(indent=2, sort_dicts=False)
 
 
@@ -64,8 +63,13 @@ def get_database_url() -> str:
     return dsn
 
 
-def get_chroma_path() -> str:
-    return os.getenv("CHROMA_PATH", "./data/chroma").strip() or "./data/chroma"
+def get_chroma_host_and_port() -> tuple[str, int]:
+    """
+    Read ChromaDB host name and port number from .env.
+    """
+    host = os.getenv("CHROMA_HOST", "localhost").strip()
+    port = int(os.getenv("CHROMA_PORT", 8002))
+    return (host, port)
 
 
 def get_embed_model() -> str:

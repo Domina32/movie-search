@@ -4,8 +4,8 @@
 # - typos spell checker -> nice-to-have, add back when docs grow.
 # - zizmor workflow scanner -> only needed once you SHA-pin actions
 #   (we do pin below, but one tool fewer to learn is worth it for now).
-# - local `uv run ...` hooks -> upstream repos where possible (ruff), local
-#   hook only for pyrefly so the checker version stays pinned in uv.lock.
+# - local `uv run ...` hooks -> all checkers (ruff, pyrefly) run from uv.lock
+#   so CLI, hook, and CI always use the exact same version (no rev-vs-lock drift).
 #
 # Install once per machine: `uv tool install pre-commit` (or `pipx install pre-commit`)
 # Then per clone: `pre-commit install`
@@ -23,17 +23,21 @@ repos:
       # blocks accidentally committed RSA/EC private keys.
       - id: detect-private-key
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.14
+  - repo: local
     hooks:
       # --fix auto-sorts imports (I rules) and safe fixes; exits non-zero
       # so the commit stops and you re-stage the fixed files.
+      # uv-run so hook, `just lint`, and CI all use the uv.lock ruff version.
       - id: ruff-check
-        args: [--fix, --exit-non-zero-on-fix]
+        name: ruff check --fix (uv)
+        entry: uv run ruff check --fix --exit-non-zero-on-fix
+        language: unsupported
+        types: [python]
       - id: ruff-format
-
-  - repo: local
-    hooks:
+        name: ruff format (uv)
+        entry: uv run ruff format
+        language: unsupported
+        types: [python]
       - id: pyrefly
         name: pyrefly check
         # Local hook (same pattern hajduk-detector uses for mypy/ty):

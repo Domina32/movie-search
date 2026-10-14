@@ -31,10 +31,6 @@ from ingest.tmdb import (
 
 
 class AsyncDatabase:
-    """
-    Async engine and session factory singleton.
-    """
-
     def __init__(self) -> None:
         self._engine: AsyncEngine | None = None
         self._factory: async_sessionmaker[AsyncSession] | None = None
