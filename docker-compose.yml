@@ -44,7 +44,6 @@ services:
       EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
       HF_HUB_OFFLINE: 0
       HF_HOME: ${HF_HOME:-/root/.cache/huggingface}
-      PROFILING_ENABLED: ${PROFILING_ENABLED:-false}
     volumes:
       - hf-cache:/root/.cache/huggingface
     ports:
@@ -64,9 +63,23 @@ services:
   ingest:
     build:
       context: .
+    profiles: ["ingest"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      MAX_PAGES: ${MAX_PAGES}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["uv", "run", "--no-sync", "python", "-m", "ingest.runner"]
+
+  embed:
+    build:
+      context: .
       args:
         EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
-    profiles: ["ingest"]
+    profiles: ["embed"]
     env_file:
       - .env
     environment:
@@ -76,7 +89,6 @@ services:
       EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
       HF_HUB_OFFLINE: 0
       HF_HOME: ${HF_HOME:-/root/.cache/huggingface}
-      MAX_PAGES: ${MAX_PAGES}
     volumes:
       - hf-cache:/root/.cache/huggingface
     depends_on:
@@ -84,9 +96,7 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
-      app:
-        condition: service_healthy
-    command: ["uv", "run", "--no-sync", "python", "-m", "ingest.runner"]
+    command: ["uv", "run", "--no-sync", "python", "-m", "search.runner"]
 
 volumes:
   pgdata:

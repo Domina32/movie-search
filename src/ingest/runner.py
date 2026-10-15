@@ -11,6 +11,8 @@ from config import LOG, PROFILING_ENABLED, get_max_pages, get_tmdb_read_token
 from db.session import async_db, store_titles
 from ingest.tmdb import (
     NormalizedTitleResultData,
+    TrendingMovieTitleResponseData,
+    TrendingTvTitleResponseData,
     get_title_details,
     get_trending,
     normalize_title,
@@ -25,14 +27,14 @@ THROTTLE_TIME = 0.6
 
 
 async def build_title(
-    item: dict[str, Any],
+    item: TrendingMovieTitleResponseData | TrendingTvTitleResponseData,
     client: httpx.AsyncClient,
     token: str,
     media_type: Literal["movie", "tv"],
 ) -> NormalizedTitleResultData | None:
-    title_id = item.get("id")
-    if not isinstance(title_id, int):
-        return
+    title_id = item.id
+    if title_id < 0:
+        return None
     raw = await get_title_details(client, token, media_type, title_id)
     record = normalize_title(raw, media_type)
 

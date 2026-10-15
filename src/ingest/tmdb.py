@@ -1,9 +1,10 @@
 """TMDB API client."""
 
 from datetime import UTC, datetime
-from typing import Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 
 from config import LOG, pretty_format
 
@@ -12,79 +13,83 @@ BASE_URL = "https://api.themoviedb.org/3"
 DIRECTOR_JOBS = frozenset({"Director", "Co-Director", "Series Director"})
 
 
-class GenreResponseData(TypedDict):
-    id: int
-    name: str
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
-class CreatorResponseData(TypedDict):
-    id: int
-    name: str
+class GenreResponseData(StrictModel):
+    id: int = -1
+    name: str = ""
 
 
-class CastResponseData(TypedDict):
-    id: int
-    name: str
-    order: int
+class CreatorResponseData(StrictModel):
+    id: int = -1
+    name: str = ""
 
 
-class CrewResponseData(TypedDict):
-    id: int
-    name: str
-    job: str
+class CastResponseData(StrictModel):
+    id: int = -1
+    name: str = ""
+    order: int = 9999
 
 
-class CreditsResponseData(TypedDict):
-    cast: list[CastResponseData]
-    crew: list[CrewResponseData]
+class CrewResponseData(StrictModel):
+    id: int = -1
+    name: str = ""
+    job: str = ""
 
 
-class ReviewResponseData(TypedDict):
-    id: str
-    content: str
+class CreditsResponseData(StrictModel):
+    cast: list[CastResponseData] = Field(default_factory=list)
+    crew: list[CrewResponseData] = Field(default_factory=list)
 
 
-class ReviewsResponseData(TypedDict):
-    results: list[ReviewResponseData]
+class ReviewResponseData(StrictModel):
+    id: str = ""
+    content: str = ""
 
 
-class LanguageResponseData(TypedDict):
-    english_name: str
+class ReviewsResponseData(StrictModel):
+    results: list[ReviewResponseData] = Field(default_factory=list)
 
 
-class TrendingMovieTitleResponseData(TypedDict):
-    id: int
-    title: str
-    original_language: str
+class LanguageResponseData(StrictModel):
+    english_name: str = ""
 
 
-class TrendingTvTitleResponseData(TypedDict):
-    id: int
-    name: str
-    original_language: str
+class TrendingMovieTitleResponseData(StrictModel):
+    id: int = -1
+    title: str = ""
+    original_language: str = ""
 
 
-class DetailsTvResponseData(TypedDict):
-    id: int
-    name: str
-    original_language: str
-    spoken_languages: list[LanguageResponseData]
-    genres: list[GenreResponseData]
-    first_air_date: str
-    credits: CreditsResponseData
-    created_by: list[CreatorResponseData]
-    reviews: ReviewsResponseData
+class TrendingTvTitleResponseData(StrictModel):
+    id: int = -1
+    name: str = ""
+    original_language: str = ""
 
 
-class DetailsMovieResponseData(TypedDict):
-    id: int
-    title: str
-    original_language: str
-    spoken_languages: list[LanguageResponseData]
-    genres: list[GenreResponseData]
-    release_date: str
-    credits: CreditsResponseData
-    reviews: ReviewsResponseData
+class DetailsTvResponseData(StrictModel):
+    id: int | None = None
+    name: str = ""
+    original_language: str = ""
+    spoken_languages: list[LanguageResponseData] = Field(default_factory=list)
+    genres: list[GenreResponseData] = Field(default_factory=list)
+    first_air_date: str = ""
+    credits: CreditsResponseData = Field(default_factory=CreditsResponseData)
+    created_by: list[CreatorResponseData] = Field(default_factory=list)
+    reviews: ReviewsResponseData = Field(default_factory=ReviewsResponseData)
+
+
+class DetailsMovieResponseData(StrictModel):
+    id: int | None = None
+    title: str = ""
+    original_language: str = ""
+    spoken_languages: list[LanguageResponseData] = Field(default_factory=list)
+    genres: list[GenreResponseData] = Field(default_factory=list)
+    release_date: str = ""
+    credits: CreditsResponseData = Field(default_factory=CreditsResponseData)
+    reviews: ReviewsResponseData = Field(default_factory=ReviewsResponseData)
 
 
 class NormalizedReviewData(TypedDict):
@@ -131,7 +136,7 @@ async def get_trending(
     token: str,
     media_type: Literal["movie", "tv"],
     page: int,
-) -> list[dict[str, TrendingTvTitleResponseData | TrendingMovieTitleResponseData]]:
+) -> list[TrendingTvTitleResponseData | TrendingMovieTitleResponseData]:
     """
     Get trending movies and tv shows for the day.
     """
@@ -142,7 +147,16 @@ async def get_trending(
         timeout=10.0,
     )
     response.raise_for_status()
-    return response.json().get("results", [])
+    model = (
+        TrendingMovieTitleResponseData
+        if media_type == "movie"
+        else TrendingTvTitleResponseData
+    )
+    return [
+        model.model_validate(item)
+        for item in response.json().get("results", [])
+        if isinstance(item, dict)
+    ]
 
 
 async def get_title_details(
@@ -166,39 +180,50 @@ async def get_title_details(
 
     LOG.debug(f"Fetched details for title id {title_id}.")
 
-    return response.json()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError(f"Unexpected TMDB payload for {media_type}/{title_id}")
+    if media_type == "movie":
+        return DetailsMovieResponseData.model_validate(payload)
+    return DetailsTvResponseData.model_validate(payload)
 
 
 def normalize_title(
-    raw: DetailsTvResponseData | DetailsMovieResponseData,
+    raw: DetailsTvResponseData | DetailsMovieResponseData | dict[str, Any],
     media_type: Literal["movie", "tv"],
 ) -> NormalizedTitleResultData | None:
     """
     Parse response data for title into shape with details, credits and reviews.
     Returns None when the payload has no usable TMDB id (nothing to store).
     """
-    raw_id = raw.get("id")
-    if not isinstance(raw_id, int):
+    if isinstance(raw, dict):
+        model = (
+            DetailsMovieResponseData if media_type == "movie" else DetailsTvResponseData
+        )
+        parsed = model.model_validate(raw)
+    else:
+        parsed = raw
+    if not isinstance(parsed.id, int):
         return None
+    raw_id = parsed.id
 
-    actors: list[NormalizedActorData] = []
-    directors: list[NormalizedDirectorData] = []
-    credits = raw.get("credits") or {}
-    crew_members = credits.get("crew") or []
-    cast_members = credits.get("cast") or []
+    credits = parsed.credits
+    crew_members = credits.crew
+    cast_members = credits.cast
     sorted_actors: list[NormalizedActorData] = sorted(
         [
             {
-                "id": member["id"],
-                "name": (member.get("name") or "").strip(),
-                "order": member.get("order"),
+                "id": member.id,
+                "name": (member.name or "").strip(),
+                "order": member.order,
             }
             for member in cast_members
-            if "id" in member
+            if member.id >= 0
         ],
         key=lambda m: m["order"],
     )
     seen_actor_ids: set[int] = set()
+    actors: list[NormalizedActorData] = []
     for a in sorted_actors:
         if a["id"] in seen_actor_ids:
             continue
@@ -206,27 +231,27 @@ def normalize_title(
         actors.append(a)
 
     # get creators for tv shows, not directors of individual episodes
-    if "created_by" in raw:
-        creators = cast(DetailsTvResponseData, raw).get("created_by")
+    if isinstance(parsed, DetailsTvResponseData) and parsed.created_by:
         sorted_directors = [
             {
-                "id": member["id"],
-                "name": (member.get("name") or "").strip(),
+                "id": member.id,
+                "name": (member.name or "").strip(),
             }
-            for member in creators
-            if "id" in member
+            for member in parsed.created_by
+            if member.id >= 0
         ]
     else:
         sorted_directors = [
             {
-                "id": member["id"],
-                "name": (member.get("name") or "").strip(),
+                "id": member.id,
+                "name": (member.name or "").strip(),
             }
             for member in crew_members
-            if "id" in member
-            if member.get("job") in DIRECTOR_JOBS
+            if member.id >= 0
+            if member.job in DIRECTOR_JOBS
         ]
     seen_director_ids: set[int] = set()
+    directors: list[NormalizedDirectorData] = []
     for d in sorted_directors:
         if d["id"] in seen_director_ids:
             continue
@@ -234,36 +259,34 @@ def normalize_title(
         directors.append(d)
 
     # get human readable language name
-    spoken = raw.get("spoken_languages") or []
-    language_name = spoken[0].get("english_name", "") if spoken else ""
+    spoken = parsed.spoken_languages
+    language_name = spoken[0].english_name if spoken else ""
 
     genres: list[NormalizedGenreData] = [
         {
-            "id": genre["id"],
-            "name": genre["name"].strip(),
+            "id": genre.id,
+            "name": genre.name.strip(),
         }
-        for genre in raw.get("genres") or []
-        if "id" in genre and genre.get("name")
+        for genre in parsed.genres
+        if genre.id >= 0 and genre.name.strip()
     ]
 
-    reviews_block = raw.get("reviews") or {}
-    review_items = reviews_block.get("results") or []
     reviews: list[NormalizedReviewData] = [
         {
-            "id": r.get("id", ""),
-            "content": r.get("content", ""),
+            "id": r.id,
+            "content": r.content,
         }
-        for r in review_items
-        if r.get("content")
+        for r in parsed.reviews.results
+        if r.content
     ]
 
-    if media_type == "movie":
-        title = cast(DetailsMovieResponseData, raw).get("title") or ""
-        release_date = cast(DetailsMovieResponseData, raw).get("release_date") or ""
+    if isinstance(parsed, DetailsMovieResponseData):
+        title = parsed.title
+        release_date = parsed.release_date
     else:
-        title = cast(DetailsTvResponseData, raw).get("name") or ""
-        release_date = cast(DetailsTvResponseData, raw).get("first_air_date") or ""
-        LOG.debug(pretty_format(raw))
+        title = parsed.name
+        release_date = parsed.first_air_date
+        LOG.debug(pretty_format(parsed.model_dump()))
 
     deduped_actors: list[NormalizedActorData] = list(
         {member["id"]: member for member in actors}.values()
@@ -276,7 +299,7 @@ def normalize_title(
         "title": {
             "tmdb_id": raw_id,
             "title": title,
-            "original_language": raw.get("original_language", ""),
+            "original_language": parsed.original_language,
             "language_name": language_name,
             "release_date": release_date,
             "fetched_at": datetime.now(UTC).isoformat(),
