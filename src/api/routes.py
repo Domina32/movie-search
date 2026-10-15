@@ -11,7 +11,7 @@ from sqlmodel import SQLModel, select
 
 from db.models import Title, TitleDetailPublic, TitlePublic, TitlesPublic
 from db.session import async_db, get_async_session
-from ingest.chroma import (
+from search.chroma import (
     chroma,
     query_reviews,
 )

@@ -37,7 +37,7 @@ migrate: db
     PYTHONPATH=src uv run alembic upgrade head
 
 chroma:
-    docker start chroma 2>/dev/null || docker run -d --name chroma -p 8002:8000 -v chroma-data:/data ghcr.io/chroma-core/chroma:latest
+    docker start chroma 2>/dev/null || docker run -d --name chroma -p 8002:8000 -v chroma-data:/data ghcr.io/chroma-core/chroma:1.5.9
 
 chroma-down:
     docker stop chroma
@@ -45,8 +45,14 @@ chroma-down:
 # -- App scripts --------------------------------------------------------
 
 # Ingest trending titles into Postgres
-fetch-titles: db migrate
+fetch: db migrate
     PYTHONPATH=src uv run python -m ingest.runner
+
+store:
+    PYTHONPATH=src uv run python -m db.runner
+
+embed:
+    PYTHONPATH=src uv run python -m search.runner
 
 # Serve async API
 api: db migrate

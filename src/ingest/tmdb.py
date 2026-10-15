@@ -154,7 +154,7 @@ async def get_title_details(
     """
     Get metadata for movie or tv show by id.
     """
-    LOG.info(f"Fetching details for title id {title_id}.")
+    LOG.debug(f"Fetching details for title id {title_id}.")
 
     response = await client.get(
         f"{BASE_URL}/{media_type}/{title_id}",
@@ -164,7 +164,7 @@ async def get_title_details(
     )
     response.raise_for_status()
 
-    LOG.info(f"Fetched details for title id {title_id}.")
+    LOG.debug(f"Fetched details for title id {title_id}.")
 
     return response.json()
 

@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlmodel import SQLModel, create_engine, select
+from sqlmodel import SQLModel, create_engine
 
-from config import get_database_url
+from config import LOG, get_database_url
 from db.models import (
     Actor,
     Director,
@@ -69,114 +69,159 @@ def get_engine(dsn: str) -> Engine:
     return create_engine(dsn, pool_pre_ping=True)
 
 
-async def store_title(session: AsyncSession, record: NormalizedTitleResultData) -> UUID:
+async def try_store_title(
+    session: AsyncSession, record: NormalizedTitleResultData
+) -> UUID | None:
     """
     Upsert one title with its genres and reviews. Caller commits.
     """
     title = record["title"]
-
     payload = Title(**title)
-    row = Title.model_validate(payload).model_dump()
-    upsert = (
-        insert(Title)
-        .values(row)
-        .on_conflict_do_update(
-            constraint="uq_title_tmdb_media",
-            set_={
-                "title": row["title"],
-                "original_language": row["original_language"],
-                "language_name": row["language_name"],
-                "release_date": row["release_date"],
-                "fetched_at": datetime.now(UTC),
-            },
-        )
-    )
-    await session.execute(upsert)
-    title_id = (
-        await session.execute(
-            select(Title.id).where(
-                Title.tmdb_id == payload.tmdb_id,
-                Title.media_type == payload.media_type,
+    try:
+        async with session.begin_nested():
+            row = Title.model_validate(payload).model_dump()
+            upsert = (
+                insert(Title)
+                .values(row)
+                .on_conflict_do_update(
+                    constraint="uq_title_tmdb_media",
+                    set_={
+                        "title": row["title"],
+                        "original_language": row["original_language"],
+                        "language_name": row["language_name"],
+                        "release_date": row["release_date"],
+                        "fetched_at": datetime.now(UTC),
+                    },
+                )
+                .returning(Title.metadata.tables["title"].c.id)
             )
-        )
-    ).scalar_one()
+            title_id: UUID = (await session.execute(upsert)).scalar_one()
+            # title_id = (
+            #     await session.execute(
+            #         select(Title.id).where(
+            #             Title.tmdb_id == payload.tmdb_id,
+            #             Title.media_type == payload.media_type,
+            #         )
+            #     )
+            # ).scalar_one()
 
-    review_rows = [
-        {"id": r["id"], "title_id": title_id, "content": r["content"]}
-        for r in record.get("reviews", [])
-    ]
-    if review_rows:
-        await session.execute(
-            insert(Review)
-            .values(review_rows)
-            .on_conflict_do_nothing(index_elements=["id"])
-        )
+            review_rows = [
+                {"id": r["id"], "title_id": title_id, "content": r["content"]}
+                for r in record.get("reviews", [])
+            ]
+            if review_rows:
+                await session.execute(
+                    insert(Review)
+                    .values(review_rows)
+                    .on_conflict_do_nothing(index_elements=["id"])
+                )
 
-    genre_rows = [{"id": g["id"], "name": g["name"]} for g in record.get("genres", [])]
-    if genre_rows:
-        upsert_genres = insert(Genre).values(genre_rows)
-        await session.execute(
-            upsert_genres.on_conflict_do_update(
-                index_elements=["id"],
-                set_={"name": upsert_genres.excluded.name},
-            )
-        )
-        await session.execute(
-            insert(TitleGenreLink)
-            .values([{"title_id": title_id, "genre_id": g["id"]} for g in genre_rows])
-            .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
-        )
+            genre_rows = [
+                {"id": g["id"], "name": g["name"]} for g in record.get("genres", [])
+            ]
+            if genre_rows:
+                upsert_genres = insert(Genre).values(genre_rows)
+                await session.execute(
+                    upsert_genres.on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={"name": upsert_genres.excluded.name},
+                    )
+                )
+                await session.execute(
+                    insert(TitleGenreLink)
+                    .values(
+                        [
+                            {"title_id": title_id, "genre_id": g["id"]}
+                            for g in genre_rows
+                        ]
+                    )
+                    .on_conflict_do_nothing(index_elements=["title_id", "genre_id"])
+                )
 
-    actor_rows = [
-        {"id": a["id"], "name": a["name"], "order": a["order"]}
-        for a in record.get("actors", [])
-    ]
-    if actor_rows:
-        upsert_actors = insert(Actor).values(actor_rows)
-        await session.execute(
-            upsert_actors.on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "name": upsert_actors.excluded.name,
-                    "order": upsert_actors.excluded.order,
-                },
-            )
-        )
-        await session.execute(
-            insert(TitleActorLink)
-            .values([{"title_id": title_id, "actor_id": a["id"]} for a in actor_rows])
-            .on_conflict_do_nothing(index_elements=["title_id", "actor_id"])
-        )
+            actor_rows = [
+                {"id": a["id"], "name": a["name"], "order": a["order"]}
+                for a in record.get("actors", [])
+            ]
+            if actor_rows:
+                upsert_actors = insert(Actor).values(actor_rows)
+                await session.execute(
+                    upsert_actors.on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "name": upsert_actors.excluded.name,
+                            "order": upsert_actors.excluded.order,
+                        },
+                    )
+                )
+                await session.execute(
+                    insert(TitleActorLink)
+                    .values(
+                        [
+                            {"title_id": title_id, "actor_id": a["id"]}
+                            for a in actor_rows
+                        ]
+                    )
+                    .on_conflict_do_nothing(index_elements=["title_id", "actor_id"])
+                )
 
-    director_rows = [
-        {"id": d["id"], "name": d["name"]} for d in record.get("directors", [])
-    ]
-    if director_rows:
-        upsert_directors = insert(Director).values(director_rows)
-        await session.execute(
-            upsert_directors.on_conflict_do_update(
-                index_elements=["id"], set_={"name": upsert_directors.excluded.name}
-            )
-        )
-        await session.execute(
-            insert(TitleDirectorLink)
-            .values(
-                [{"title_id": title_id, "director_id": d["id"]} for d in director_rows]
-            )
-            .on_conflict_do_nothing(index_elements=["title_id", "director_id"])
-        )
+            director_rows = [
+                {"id": d["id"], "name": d["name"]} for d in record.get("directors", [])
+            ]
+            if director_rows:
+                upsert_directors = insert(Director).values(director_rows)
+                await session.execute(
+                    upsert_directors.on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={"name": upsert_directors.excluded.name},
+                    )
+                )
+                await session.execute(
+                    insert(TitleDirectorLink)
+                    .values(
+                        [
+                            {"title_id": title_id, "director_id": d["id"]}
+                            for d in director_rows
+                        ]
+                    )
+                    .on_conflict_do_nothing(index_elements=["title_id", "director_id"])
+                )
+            return title_id
+    except Exception as e:
+        LOG.error("Skipped storing because of:")
+        LOG.error(e)
+        return None
 
-    return title_id
 
-
-async def store_titles(records: list[NormalizedTitleResultData]) -> list[UUID]:
-    """Store a batch in one transaction. Returns title UUIDs in input order."""
+async def store_titles(
+    records: list[NormalizedTitleResultData],
+) -> list[tuple[UUID, NormalizedTitleResultData]]:
     ids: list[UUID] = []
+    failed_records: list[int] = []
     async with async_db.factory()() as session:
-        for record in records:
-            ids.append(await store_title(session, record))
+        for index, record in enumerate(records):
+            store_attempt = await try_store_title(session, record)
+
+            if store_attempt is None:
+                failed_records.append(index)
+                continue
+
+            ids.append(store_attempt)
+            LOG.debug(
+                "%s | %s (%s) | %s | %d reviews",
+                record["title"]["title"],
+                record["title"]["language_name"] or "-",
+                record["title"]["original_language"],
+                record["title"]["release_date"],
+                len(record["reviews"]),
+            )
         await session.commit()
-    return ids
+
+    successful_records = [
+        record for index, record in enumerate(records) if index not in failed_records
+    ]
+    LOG.info("Postgres upserted %d/%d", len(successful_records), len(records))
+
+    return list(zip(ids, successful_records, strict=True))
 
 
 def ensure_schema(engine: Engine) -> None:
