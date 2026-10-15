@@ -17,7 +17,17 @@ load_dotenv()
 
 LOG = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+os.makedirs("./logs", exist_ok=True)
+logging.basicConfig(
+    filename="./logs/info.txt", filemode="a", level=logging.INFO, format="%(message)s"
+)
+logging.getLogger().addHandler(logging.StreamHandler())
+
+PROFILING_ENABLED = os.getenv("PROFILING_ENABLED", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 def get_tmdb_read_token(token: str | None = None) -> str:

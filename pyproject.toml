@@ -26,6 +26,7 @@ dev = [
     "ruff>=0.2.2,<1.0.0",
     "pytest-asyncio>=1.4.0",
     "aiosqlite>=0.22.1",
+    "pyinstrument>=5.1.3",
 ]
 
 [build-system]
@@ -33,10 +34,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Flat src layout: top-level packages live directly under src/.
-packages = ["src/db", "src/ingest"]
+packages = ["src/db", "src/ingest", "src/search", "src/api"]
 # NOTE: src/config.py is a top-level module, not a package, so the wheel
-# build needs a follow-up (force-include) if we ever publish. Dev/test/run
+# build needs a follow-up (force-include) for publishing. Dev/test/run
 # use PYTHONPATH=src / pytest pythonpath below, unaffected.
 
 [tool.pyrefly]
@@ -44,6 +44,7 @@ preset = "strict"
 
 [tool.ruff]
 target-version = "py314"
+src = ["src"]
 
 [tool.ruff.lint]
 select = [

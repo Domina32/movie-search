@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+logs
 
 # Tool caches
 .mypy_cache/

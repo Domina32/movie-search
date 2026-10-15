@@ -1,5 +1,6 @@
 """Store embeddings into ChromaDB."""
 
+import asyncio
 from typing import Literal, TypedDict
 
 from chromadb import AsyncHttpClient
@@ -50,17 +51,21 @@ chroma = AsyncChromaClient(
 
 
 async def store_reviews(
-    collection: AsyncCollection, records: list[ReviewData] | None = None
+    collection: AsyncCollection, records: list[ReviewData | None]
 ) -> int:
     """
     Embed locally and upsert into Chroma.
     """
-    if not records:
-        return 0
     total = 0
     for start in range(0, len(records), EMBED_BATCH):
-        batch = records[start : start + EMBED_BATCH]
-        embeddings = embed_texts([record["content"] for record in batch])
+        batch = [
+            record
+            for record in records[start : start + EMBED_BATCH]
+            if record is not None
+        ]
+        embeddings = await asyncio.to_thread(
+            embed_texts, [record["content"] for record in batch]
+        )
         await collection.upsert(
             ids=[record["id"] for record in batch],
             embeddings=embeddings,

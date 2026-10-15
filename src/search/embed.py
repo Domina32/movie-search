@@ -50,6 +50,7 @@ def embed_texts(texts: list[str]) -> ndarray:
         normalize_embeddings=True,
         convert_to_numpy=True,
     )
+    LOG.info("Generated %d embeddings", len(vectors))
     return vectors
 
 

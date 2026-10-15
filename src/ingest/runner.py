@@ -1,19 +1,14 @@
 import asyncio
 import time
-from asyncio import Task
+from asyncio import Task, TaskGroup
 from collections.abc import Coroutine
 from typing import Any, Literal
 from uuid import UUID
 
 import httpx
 
-from config import LOG, get_max_pages, get_tmdb_read_token
+from config import LOG, PROFILING_ENABLED, get_max_pages, get_tmdb_read_token
 from db.session import async_db, store_titles
-from ingest.chroma import (
-    ReviewData,
-    chroma,
-    store_reviews,
-)
 from ingest.tmdb import (
     NormalizedReviewData,
     NormalizedTitleData,
@@ -21,6 +16,11 @@ from ingest.tmdb import (
     get_title_details,
     get_trending,
     normalize_title,
+)
+from search.chroma import (
+    ReviewData,
+    chroma,
+    store_reviews,
 )
 from search.embed import preload_embed_model
 
@@ -47,7 +47,7 @@ async def build_title(
     return record
 
 
-async def build_review(
+def build_review(
     review: NormalizedReviewData,
     title: NormalizedTitleData,
     title_id: UUID,
@@ -68,7 +68,7 @@ async def build_review(
 
 async def run_tasks[T](coroutines: list[Coroutine[Any, Any, T | None]]) -> list[T]:
     tasks: list[Task[T | None]] = []
-    async with asyncio.TaskGroup() as tg:
+    async with TaskGroup() as tg:
         for coroutine in coroutines:
             tasks.append(tg.create_task(coroutine))
     batch: list[T] = []
@@ -91,72 +91,74 @@ async def fetch_titles(max_pages: int | None = None) -> None:
 
     try:
         async with httpx.AsyncClient() as client:
-            for media_type in media_types:
-                last_fetch_start_timestamp: float | None = None
-
-                for current_page in range(1, max_pages + 1):
-                    current_timestamp = time.monotonic()
-                    time_since_last_fetch_started = current_timestamp - (
-                        last_fetch_start_timestamp or 0
-                    )
-
-                    # We have to throttle if a second has not yet passed to avoid rate limits
-                    if time_since_last_fetch_started < THROTTLE_TIME:
-                        remaining_time = THROTTLE_TIME - time_since_last_fetch_started
-
-                        await asyncio.sleep(remaining_time)
-
-                    last_fetch_start_timestamp = current_timestamp
-
-                    LOG.info(
-                        f"Fetching page {current_page} for media type {media_type}."
-                    )
-                    title_items = await get_trending(
-                        client, token, media_type, current_page
-                    )
-                    title_coroutines = [
-                        build_title(item, client, token, media_type)
-                        for item in title_items
-                    ]
-                    title_batch = await run_tasks(title_coroutines)
-                    for record in title_batch:
-                        LOG.debug(
-                            "%s | %s (%s) | %s | %d reviews",
-                            record["title"]["title"],
-                            record["title"]["language_name"] or "-",
-                            record["title"]["original_language"],
-                            record["title"]["release_date"],
-                            len(record["reviews"]),
+            async with TaskGroup() as tg:
+                for media_type in media_types:
+                    last_fetch_start_timestamp: float | None = None
+                    for current_page in range(1, max_pages + 1):
+                        current_timestamp = time.monotonic()
+                        time_since_last_fetch_started = current_timestamp - (
+                            last_fetch_start_timestamp or 0
                         )
-                    title_ids: list[UUID] = []
-                    if title_batch:
-                        title_ids = await store_titles(title_batch)
+
+                        # We have to throttle if a second has not yet passed to avoid rate limits
+                        if time_since_last_fetch_started < THROTTLE_TIME:
+                            remaining_time = (
+                                THROTTLE_TIME - time_since_last_fetch_started
+                            )
+
+                            await asyncio.sleep(remaining_time)
+
+                        last_fetch_start_timestamp = current_timestamp
+
+                        LOG.debug(
+                            f"Fetching page {current_page} for media type {media_type}."
+                        )
+                        title_items = await get_trending(
+                            client, token, media_type, current_page
+                        )
+                        LOG.info(
+                            f"Fetched page {current_page} for media type {media_type}."
+                        )
+                        title_coroutines = [
+                            build_title(item, client, token, media_type)
+                            for item in title_items
+                        ]
+                        title_batch = await run_tasks(title_coroutines)
+                        title_ids_and_records = await store_titles(title_batch)
                         LOG.debug(
                             "Stored type=%s page=%d rows=%d",
                             media_type,
                             current_page,
-                            len(title_ids),
+                            len(title_ids_and_records),
                         )
 
-                    review_coroutines = [
-                        build_review(review, record["title"], title_id)
-                        for record, title_id in zip(title_batch, title_ids, strict=True)
-                        for review in record.get("reviews", [])
-                    ]
-                    review_batch = await run_tasks(review_coroutines)
-                    for record in review_batch:
-                        LOG.debug(
-                            "%s | %s",
-                            record["id"],
-                            record["title"],
-                        )
-                    if review_batch:
-                        stored = await store_reviews(chroma_collection, review_batch)
-                        LOG.debug(f"Stored {stored}")
+                        review_batch = [
+                            build_review(review, record["title"], title_id)
+                            for title_id, record in title_ids_and_records
+                            for review in record.get("reviews", [])
+                        ]
+                        for record in review_batch:
+                            if record is None:
+                                continue
+                            LOG.debug(
+                                "%s | %s",
+                                record["id"],
+                                record["title"],
+                            )
+                        stored = store_reviews(chroma_collection, review_batch)
+                        tg.create_task(stored)
+
     finally:
         await async_db.dispose()
 
 
 if __name__ == "__main__":
     preload_embed_model()
-    asyncio.run(fetch_titles())
+
+    if PROFILING_ENABLED:
+        import pyinstrument
+
+        with pyinstrument.profile():
+            asyncio.run(fetch_titles())
+    else:
+        asyncio.run(fetch_titles())
