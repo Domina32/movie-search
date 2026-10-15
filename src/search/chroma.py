@@ -9,7 +9,7 @@ from chromadb.api.models.AsyncCollection import AsyncCollection
 from chromadb.api.types import Where
 
 from config import LOG, get_chroma_host_and_port
-from search.embed import EMBED_BATCH, embed_texts
+from search.embed import EMBED_BATCH_SIZE, embed_texts
 
 COLLECTION_NAME = "reviews"
 
@@ -50,17 +50,17 @@ chroma = AsyncChromaClient(
 )
 
 
-async def store_reviews(
-    collection: AsyncCollection, records: list[ReviewData | None]
+async def store_embeddings(
+    collection: AsyncCollection, records: list[ReviewData]
 ) -> int:
     """
     Embed locally and upsert into Chroma.
     """
     total = 0
-    for start in range(0, len(records), EMBED_BATCH):
+    for start in range(0, len(records), EMBED_BATCH_SIZE):
         batch = [
             record
-            for record in records[start : start + EMBED_BATCH]
+            for record in records[start : start + EMBED_BATCH_SIZE]
             if record is not None
         ]
         embeddings = await asyncio.to_thread(

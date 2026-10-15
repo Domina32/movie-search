@@ -10,7 +10,6 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -98,3 +97,4 @@ def downgrade() -> None:
     op.drop_table("genre")
     op.drop_table("director")
     # ### end Alembic commands ###
+    sa.Enum(name="mediatype").drop(op.get_bind(), checkfirst=True)

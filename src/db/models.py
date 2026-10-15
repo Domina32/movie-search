@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy import DateTime, Index, UniqueConstraint, text
 from sqlalchemy.orm import Mapped
 from sqlmodel import Field, SQLModel
 from sqlmodel.main import Relationship
@@ -17,9 +17,11 @@ class MediaType(enum.StrEnum):
     tv = "tv"
 
 
-class CreditsRole(enum.StrEnum):
-    actor = "actor"
-    director = "director"
+class EmbeddingStatus(enum.StrEnum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
 
 
 class TitleBase(SQLModel):
@@ -115,7 +117,18 @@ class ReviewBase(SQLModel):
 class Review(ReviewBase, table=True):
     id: str = Field(primary_key=True, max_length=64)
     title_id: uuid.UUID = Field(foreign_key="title.id", index=True, ondelete="CASCADE")
-    title: Title | None = Relationship(back_populates="reviews")
+    title: Title = Relationship(back_populates="reviews")
+    embedding_status: EmbeddingStatus = Field(
+        default=EmbeddingStatus.pending,
+        max_length=16,
+    )
+    __table_args__ = (
+        Index(
+            "ix_review_needs_embedding",
+            "embedding_status",
+            postgresql_where=text("embedding_status = 'pending'"),
+        ),
+    )
 
 
 class ReviewPublic(ReviewBase):

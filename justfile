@@ -29,6 +29,7 @@ check: lint typecheck test
 
 db:
     docker start movie-pg 2>/dev/null || docker run -d --name movie-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=movie_search -p 5432:5432 -v movie-pg-data:/var/lib/postgresql/data postgres:16
+    until docker exec movie-pg pg_isready -U postgres; do sleep 1; done
 
 db-down:
     docker stop movie-pg
@@ -45,11 +46,8 @@ chroma-down:
 # -- App scripts --------------------------------------------------------
 
 # Ingest trending titles into Postgres
-fetch: db migrate
+ingest: db migrate
     PYTHONPATH=src uv run python -m ingest.runner
-
-store:
-    PYTHONPATH=src uv run python -m db.runner
 
 embed:
     PYTHONPATH=src uv run python -m search.runner
