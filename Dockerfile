@@ -17,17 +17,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock README.md alembic.ini ./
-COPY alembic ./alembic
-COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
-
 
 ARG EMBED_MODEL=BAAI/bge-small-en-v1.5
 ENV EMBED_MODEL=${EMBED_MODEL}
 RUN --mount=type=cache,target=/root/.cache/huggingface \
     uv run --no-sync python -c "from sentence_transformers import SentenceTransformer; import os; SentenceTransformer(os.environ['EMBED_MODEL'])"
+
+COPY alembic ./alembic
+COPY src ./src
 
 EXPOSE 8001
 

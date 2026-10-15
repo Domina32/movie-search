@@ -118,7 +118,7 @@ class NormalizedTitleData(TypedDict):
     title: str
     original_language: str
     language_name: str
-    release_date: str
+    release_date: str | None
     fetched_at: str
     media_type: Literal["movie", "tv"]
 
@@ -306,7 +306,7 @@ def normalize_title(
             "title": title,
             "original_language": parsed.original_language,
             "language_name": language_name,
-            "release_date": release_date,
+            "release_date": release_date or None,
             "fetched_at": datetime.now(UTC).isoformat(),
             "media_type": media_type,
         },

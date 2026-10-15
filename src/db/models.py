@@ -24,6 +24,23 @@ class EmbeddingStatus(enum.StrEnum):
     failed = "failed"
 
 
+class IngestStatus(enum.StrEnum):
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class IngestRun(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    status: IngestStatus = Field(default=IngestStatus.running, max_length=16)
+    max_pages: int = Field(default=0)
+    started_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+    finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+
 class TitleBase(SQLModel):
     tmdb_id: int
     media_type: MediaType = Field(max_length=16)

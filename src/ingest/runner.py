@@ -6,9 +6,17 @@ from typing import Any, Literal
 
 import httpx
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio.session import AsyncSession
 
-from config import LOG, PROFILING_ENABLED, get_max_pages, get_tmdb_read_token
-from db.session import async_db, store_titles
+from config import (
+    LOG,
+    PROFILING_ENABLED,
+    configure_logging,
+    get_max_pages,
+    get_tmdb_token,
+)
+from db.models import IngestStatus
+from db.session import async_db, set_ingest_run_status, start_ingest_run, store_titles
 from ingest.tmdb import (
     NormalizedTitleResultData,
     TrendingMovieTitleResponseData,
@@ -35,8 +43,32 @@ async def build_title(
     title_id = item.id
     if title_id < 0:
         return None
-    raw = await get_title_details(client, token, media_type, title_id)
-    record = normalize_title(raw, media_type)
+    try:
+        raw = await get_title_details(client, token, media_type, title_id)
+    except httpx.HTTPStatusError as e:
+        body = (e.response.text or "")[:300] if e.response is not None else ""
+        status = e.response.status_code if e.response is not None else "?"
+        LOG.warning(
+            "TMDB details failed type=%s id=%d status=%s body=%s",
+            media_type,
+            title_id,
+            status,
+            body,
+        )
+        return None
+    except (httpx.TimeoutException, httpx.TransportError) as e:
+        LOG.warning(
+            "TMDB details transport error type=%s id=%d error=%s",
+            media_type,
+            title_id,
+            e,
+        )
+        return None
+    try:
+        record = normalize_title(raw, media_type)
+    except Exception:
+        LOG.exception("TMDB normalize failed type=%s id=%d", media_type, title_id)
+        return None
 
     return record
 
@@ -55,15 +87,15 @@ async def run_tasks[T](coroutines: list[Coroutine[Any, Any, T | None]]) -> list[
     return batch
 
 
-async def fetch_titles(client: AsyncClient, max_pages: int | None = None) -> None:
+async def fetch_titles(
+    client: AsyncClient, max_pages: int, session: AsyncSession
+) -> None:
     """
     Fetch titles, normalize and store into db.
     """
-    if max_pages is None:
-        max_pages = get_max_pages()
-
-    token = get_tmdb_read_token()
+    token = get_tmdb_token()
     media_types: tuple[Literal["movie", "tv"], ...] = ("movie", "tv")
+    run_id = await start_ingest_run(max_pages, session)
 
     try:
         for media_type in media_types:
@@ -102,19 +134,27 @@ async def fetch_titles(client: AsyncClient, max_pages: int | None = None) -> Non
                     len(title_batch),
                     len(stored),
                 )
-    finally:
-        await async_db.dispose()
+        await set_ingest_run_status(run_id, IngestStatus.completed, session)
+    except Exception:
+        LOG.exception("Ingest run %s failed.", run_id)
+        await set_ingest_run_status(run_id, IngestStatus.failed, session)
+        raise
 
 
 async def main():
-    async with httpx.AsyncClient() as client:
-        if PROFILING_ENABLED:
-            import pyinstrument
+    configure_logging()
 
-            with pyinstrument.profile():
-                await fetch_titles(client)
-        else:
-            await fetch_titles(client)
+    async with httpx.AsyncClient() as client, async_db:
+        max_pages = get_max_pages()
+
+        async with async_db.factory()() as session:
+            if PROFILING_ENABLED:
+                import pyinstrument
+
+                with pyinstrument.profile():
+                    await fetch_titles(client, max_pages, session)
+            else:
+                await fetch_titles(client, max_pages, session)
 
 
 if __name__ == "__main__":
