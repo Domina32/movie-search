@@ -1,4 +1,5 @@
 import asyncio
+import signal
 from uuid import UUID
 
 from sqlalchemy import update
@@ -12,6 +13,7 @@ from db.session import (
     async_db,
     fetch_unprocessed_reviews_from_db,
     is_ingest_active,
+    reclaim_processing_reviews,
 )
 from ingest.tmdb import (
     NormalizedReviewData,
@@ -46,12 +48,30 @@ def build_review(
     }
 
 
-async def embed_and_store_reviews(session: AsyncSession):
+def install_shutdown_handlers(stop: asyncio.Event) -> None:
+    """Flag stop on SIGTERM/SIGINT so loops exit at the next checkpoint."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError, RuntimeError, ValueError:
+            pass
+
+
+async def embed_and_store_reviews(
+    session: AsyncSession, stop: asyncio.Event | None = None
+):
     """
     Fetch stored review from db, generate embedding, store into chroma.
     """
     await chroma.connect()
     chroma_collection = chroma.get_collection()
+    reclaimed = await reclaim_processing_reviews(session)
+    if reclaimed:
+        LOG.info("Reclaimed %d stranded processing reviews.", reclaimed)
     db_titles_with_reviews: (
         list[tuple[UUID, TitlesAndReviewsNormalizedData]] | None
     ) = []
@@ -59,6 +79,9 @@ async def embed_and_store_reviews(session: AsyncSession):
     keep_polling = True
 
     while keep_polling:
+        if stop is not None and stop.is_set():
+            LOG.info("Shutdown requested, stopping embed.")
+            return
         db_titles_with_reviews = await fetch_unprocessed_reviews_from_db(
             session, EMBED_BATCH_SIZE
         )
@@ -103,6 +126,17 @@ async def embed_and_store_reviews(session: AsyncSession):
             if review_ids:
                 try:
                     await store_embeddings(chroma_collection, reviews_valid)
+                except asyncio.CancelledError:
+                    LOG.exception(
+                        "Chroma upsert cancelled for %d reviews.", len(review_ids)
+                    )
+                    await session.execute(
+                        update(Review)
+                        .where(Review.metadata.tables["review"].c.id.in_(review_ids))
+                        .values(embedding_status=EmbeddingStatus.failed)
+                    )
+                    await session.commit()
+                    raise
                 except Exception:
                     LOG.exception(
                         "Chroma upsert failed for %d reviews.", len(review_ids)
@@ -127,14 +161,16 @@ async def embed_and_store_reviews(session: AsyncSession):
 
 async def main():
     configure_logging()
+    stop = asyncio.Event()
     async with async_db, async_db.factory()() as session:
+        install_shutdown_handlers(stop)
         if PROFILING_ENABLED:
             import pyinstrument
 
             with pyinstrument.profile():
-                await embed_and_store_reviews(session)
+                await embed_and_store_reviews(session, stop)
         else:
-            await embed_and_store_reviews(session)
+            await embed_and_store_reviews(session, stop)
 
 
 if __name__ == "__main__":
