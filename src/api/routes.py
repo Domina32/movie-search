@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlmodel import SQLModel, select
 
+from config import configure_logging
 from db.models import Title, TitleDetailPublic, TitlePublic, TitlesPublic
 from db.session import async_db, get_async_session
 from search.chroma import (
@@ -37,10 +38,11 @@ class SearchResponse(SQLModel):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+    configure_logging()
     await asyncio.to_thread(preload_embed_model)
     await chroma.connect()
-    yield
-    await async_db.dispose()
+    async with async_db:
+        yield
 
 
 app = FastAPI(title="movie-search", lifespan=lifespan)

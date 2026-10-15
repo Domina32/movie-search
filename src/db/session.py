@@ -21,6 +21,8 @@ from db.models import (
     Director,
     EmbeddingStatus,
     Genre,
+    IngestRun,
+    IngestStatus,
     MediaType,
     Review,
     Title,
@@ -63,6 +65,14 @@ class AsyncDatabase:
             await self._engine.dispose()
             self._engine = None
             self._factory = None
+
+    async def __aenter__(self) -> AsyncDatabase:
+        self.factory()
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        await self.dispose()
+        return False
 
 
 async_db = AsyncDatabase()
@@ -233,6 +243,45 @@ async def store_titles(
     return list(zip(ids, successful_records, strict=True))
 
 
+async def start_ingest_run(max_pages: int, session: AsyncSession) -> UUID:
+    # await session.execute(
+    #     update(IngestRun)
+    #     .where(IngestRun.metadata.tables["ingestrun"].c.status == IngestStatus.running)
+    #     .values(status=IngestStatus.failed, finished_at=datetime.now(UTC))
+    # )
+    run = IngestRun(max_pages=max_pages)
+    session.add(run)
+    await session.commit()
+    await session.refresh(run)
+    return run.id
+
+
+async def set_ingest_run_status(
+    run_id: UUID, status: IngestStatus, session: AsyncSession
+) -> None:
+    await session.execute(
+        update(IngestRun)
+        .where(IngestRun.metadata.tables["ingestrun"].c.id == run_id)
+        .values(status=status, finished_at=datetime.now(UTC))
+    )
+    await session.commit()
+
+
+async def is_ingest_active(session: AsyncSession) -> bool:
+    latest = (
+        (
+            await session.execute(
+                select(IngestRun)
+                .order_by(IngestRun.metadata.tables["ingestrun"].c.started_at.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return latest is None or latest.status == IngestStatus.running
+
+
 async def fetch_unprocessed_reviews_from_db(
     session: AsyncSession,
     batch_size: int,
@@ -288,5 +337,7 @@ async def fetch_unprocessed_reviews_from_db(
 
 
 def ensure_schema(engine: Engine) -> None:
-    """Create tables without migrations (dev/test only)."""
+    """
+    Create tables without migrations (dev/test only).
+    """
     SQLModel.metadata.create_all(engine)

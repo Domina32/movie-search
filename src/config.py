@@ -16,15 +16,25 @@ def pretty_format(obj: Any):
 load_dotenv()
 
 LOG = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-os.makedirs("./logs", exist_ok=True)
-logging.basicConfig(
-    filename="./logs/info.txt",
-    filemode="w",
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logging.getLogger().addHandler(logging.StreamHandler())
+
+
+def configure_logging(level: int = logging.INFO) -> None:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    os.makedirs("./logs", exist_ok=True)
+    root = logging.getLogger()
+
+    if root.handlers:
+        root.setLevel(level)
+        return
+
+    logging.basicConfig(
+        filename="./logs/info.txt",
+        filemode="w",
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    logging.getLogger().addHandler(logging.StreamHandler())
+
 
 PROFILING_ENABLED = os.getenv("PROFILING_ENABLED", "false").strip().lower() in (
     "1",
@@ -33,7 +43,7 @@ PROFILING_ENABLED = os.getenv("PROFILING_ENABLED", "false").strip().lower() in (
 )
 
 
-def get_tmdb_read_token(token: str | None = None) -> str:
+def get_tmdb_token(token: str | None = None) -> str:
     """
     Read The Movie Database API read access token from .env.
     """
