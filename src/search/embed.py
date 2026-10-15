@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 from config import LOG
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
-EMBED_BATCH = 100
+EMBED_BATCH_SIZE = 100
 # bge-small context is 512 tokens
 MAX_CHARS = 2000
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "

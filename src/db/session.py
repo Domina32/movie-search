@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,13 +12,16 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import SQLModel, create_engine, select
+from typing_extensions import TypedDict
 
 from config import LOG, get_database_url
 from db.models import (
     Actor,
     Director,
+    EmbeddingStatus,
     Genre,
+    MediaType,
     Review,
     Title,
     TitleActorLink,
@@ -26,8 +29,20 @@ from db.models import (
     TitleGenreLink,
 )
 from ingest.tmdb import (
+    NormalizedReviewData,
     NormalizedTitleResultData,
 )
+
+
+class NormalizedTitleDataShort(TypedDict):
+    title: str
+    tmdb_id: int
+    media_type: MediaType
+
+
+class TitlesAndReviewsNormalizedData(TypedDict):
+    title: NormalizedTitleDataShort
+    reviews: list[NormalizedReviewData]
 
 
 class AsyncDatabase:
@@ -73,7 +88,7 @@ async def try_store_title(
     session: AsyncSession, record: NormalizedTitleResultData
 ) -> UUID | None:
     """
-    Upsert one title with its genres and reviews. Caller commits.
+    Upsert one title with its genres and reviews.
     """
     title = record["title"]
     payload = Title(**title)
@@ -96,14 +111,6 @@ async def try_store_title(
                 .returning(Title.metadata.tables["title"].c.id)
             )
             title_id: UUID = (await session.execute(upsert)).scalar_one()
-            # title_id = (
-            #     await session.execute(
-            #         select(Title.id).where(
-            #             Title.tmdb_id == payload.tmdb_id,
-            #             Title.media_type == payload.media_type,
-            #         )
-            #     )
-            # ).scalar_one()
 
             review_rows = [
                 {"id": r["id"], "title_id": title_id, "content": r["content"]}
@@ -222,6 +229,60 @@ async def store_titles(
     LOG.info("Postgres upserted %d/%d", len(successful_records), len(records))
 
     return list(zip(ids, successful_records, strict=True))
+
+
+async def fetch_unprocessed_reviews_from_db(
+    session: AsyncSession,
+    batch_size: int,
+) -> list[tuple[UUID, TitlesAndReviewsNormalizedData]] | None:
+    """
+    Queries reviews that match EmbeddingStatus.pending.
+    """
+    statement = (
+        select(Review.id)
+        .where(Review.embedding_status == EmbeddingStatus.pending)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+    )
+    result = await session.execute(statement)
+    review_ids = result.scalars().all()
+    if not review_ids:
+        return None
+
+    await session.execute(
+        update(Review)
+        .where(Review.metadata.tables["review"].c.id.in_(review_ids))
+        .values(embedding_status=EmbeddingStatus.processing)
+    )
+    await session.commit()
+
+    statement = (
+        select(Review, Title)
+        .join(Title)
+        .where(Review.metadata.tables["review"].c.id.in_(review_ids))
+    )
+    rows = (await session.execute(statement)).all()
+
+    grouped_data: dict[UUID, TitlesAndReviewsNormalizedData] = {}
+    for review, title_obj in rows:
+        title_id = review.title_id
+        if title_id not in grouped_data:
+            grouped_data[title_id] = {
+                "title": {
+                    "title": title_obj.title,
+                    "tmdb_id": title_obj.tmdb_id,
+                    "media_type": title_obj.media_type,
+                },
+                "reviews": [],
+            }
+
+        grouped_data[title_id]["reviews"].append(
+            {
+                "id": review.id,
+                "content": review.content,
+            }
+        )
+    return list(grouped_data.items())
 
 
 def ensure_schema(engine: Engine) -> None:

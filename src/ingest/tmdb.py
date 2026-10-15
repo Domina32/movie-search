@@ -186,7 +186,7 @@ def normalize_title(
     credits = raw.get("credits") or {}
     crew_members = credits.get("crew") or []
     cast_members = credits.get("cast") or []
-    actors = sorted(
+    sorted_actors: list[NormalizedActorData] = sorted(
         [
             {
                 "id": member["id"],
@@ -198,10 +198,17 @@ def normalize_title(
         ],
         key=lambda m: m["order"],
     )
+    seen_actor_ids: set[int] = set()
+    for a in sorted_actors:
+        if a["id"] in seen_actor_ids:
+            continue
+        seen_actor_ids.add(a["id"])
+        actors.append(a)
+
     # get creators for tv shows, not directors of individual episodes
     if "created_by" in raw:
-        creators = cast("DetailsTvResponseData", raw).get("created_by")
-        directors = [
+        creators = cast(DetailsTvResponseData, raw).get("created_by")
+        sorted_directors = [
             {
                 "id": member["id"],
                 "name": (member.get("name") or "").strip(),
@@ -210,7 +217,7 @@ def normalize_title(
             if "id" in member
         ]
     else:
-        directors = [
+        sorted_directors = [
             {
                 "id": member["id"],
                 "name": (member.get("name") or "").strip(),
@@ -219,6 +226,12 @@ def normalize_title(
             if "id" in member
             if member.get("job") in DIRECTOR_JOBS
         ]
+    seen_director_ids: set[int] = set()
+    for d in sorted_directors:
+        if d["id"] in seen_director_ids:
+            continue
+        seen_director_ids.add(d["id"])
+        directors.append(d)
 
     # get human readable language name
     spoken = raw.get("spoken_languages") or []
@@ -245,12 +258,19 @@ def normalize_title(
     ]
 
     if media_type == "movie":
-        title = cast("DetailsMovieResponseData", raw).get("title") or ""
-        release_date = cast("DetailsMovieResponseData", raw).get("release_date") or ""
+        title = cast(DetailsMovieResponseData, raw).get("title") or ""
+        release_date = cast(DetailsMovieResponseData, raw).get("release_date") or ""
     else:
-        title = cast("DetailsTvResponseData", raw).get("name") or ""
-        release_date = cast("DetailsTvResponseData", raw).get("first_air_date") or ""
+        title = cast(DetailsTvResponseData, raw).get("name") or ""
+        release_date = cast(DetailsTvResponseData, raw).get("first_air_date") or ""
         LOG.debug(pretty_format(raw))
+
+    deduped_actors: list[NormalizedActorData] = list(
+        {member["id"]: member for member in actors}.values()
+    )[:5]
+    deduped_directors: list[NormalizedDirectorData] = list(
+        {member["id"]: member for member in directors}.values()
+    )
 
     return {
         "title": {
@@ -264,6 +284,6 @@ def normalize_title(
         },
         "reviews": reviews,
         "genres": genres,
-        "actors": actors[:5],
-        "directors": directors,
+        "actors": deduped_actors,
+        "directors": deduped_directors,
     }
