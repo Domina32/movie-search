@@ -214,11 +214,13 @@ async def store_titles(
 
             ids.append(store_attempt)
             LOG.debug(
-                "%s | %s (%s) | %s | %d reviews",
+                "%s | %s (%s) | %s | tmdb=%s (%s) | %d reviews",
                 record["title"]["title"],
                 record["title"]["language_name"] or "-",
                 record["title"]["original_language"],
                 record["title"]["release_date"],
+                record["title"]["tmdb_id"],
+                record["title"]["media_type"],
                 len(record["reviews"]),
             )
         await session.commit()

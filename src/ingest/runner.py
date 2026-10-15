@@ -82,7 +82,9 @@ async def fetch_titles(client: AsyncClient, max_pages: int | None = None) -> Non
 
                 last_fetch_start_timestamp = current_timestamp
 
-                LOG.debug(f"Fetching page {current_page} for media type {media_type}.")
+                LOG.debug(
+                    f"Fetching page {current_page}/{max_pages} for media type {media_type}."
+                )
                 title_items = await get_trending(
                     client, token, media_type, current_page
                 )
@@ -93,9 +95,11 @@ async def fetch_titles(client: AsyncClient, max_pages: int | None = None) -> Non
                 title_batch = await run_tasks(title_coroutines)
                 stored = await store_titles(title_batch)
                 LOG.debug(
-                    "Stored type=%s page=%d rows=%d",
+                    "Stored type=%s page=%d/%d fetched=%d stored=%d",
                     media_type,
                     current_page,
+                    max_pages,
+                    len(title_batch),
                     len(stored),
                 )
     finally:

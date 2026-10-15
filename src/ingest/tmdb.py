@@ -168,7 +168,7 @@ async def get_title_details(
     """
     Get metadata for movie or tv show by id.
     """
-    LOG.debug(f"Fetching details for title id {title_id}.")
+    LOG.debug(f"Fetching details for title id {title_id} ({media_type}).")
 
     response = await client.get(
         f"{BASE_URL}/{media_type}/{title_id}",
@@ -178,7 +178,7 @@ async def get_title_details(
     )
     response.raise_for_status()
 
-    LOG.debug(f"Fetched details for title id {title_id}.")
+    LOG.debug(f"Fetched details for title id {title_id} ({media_type}).")
 
     payload = response.json()
     if not isinstance(payload, dict):
@@ -286,7 +286,12 @@ def normalize_title(
     else:
         title = parsed.name
         release_date = parsed.first_air_date
-        LOG.debug(pretty_format(parsed.model_dump()))
+        LOG.debug(
+            "Parsed tv id=%s name=%s\n%s",
+            parsed.id,
+            parsed.name,
+            pretty_format(parsed.model_dump()),
+        )
 
     deduped_actors: list[NormalizedActorData] = list(
         {member["id"]: member for member in actors}.values()

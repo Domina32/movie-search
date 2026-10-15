@@ -64,7 +64,10 @@ async def embed_and_store_reviews(session: AsyncSession):
                 session, EMBED_BATCH_SIZE
             )
             if db_titles_with_reviews is None:
-                LOG.debug("No reviews found waiting for embedding.")
+                LOG.debug(
+                    "No reviews found waiting for embedding (batch_size=%d).",
+                    EMBED_BATCH_SIZE,
+                )
                 return
 
             async with TaskGroup() as tg:
@@ -77,7 +80,13 @@ async def embed_and_store_reviews(session: AsyncSession):
                 for record in review_batch:
                     if record is None:
                         continue
-                    LOG.debug("%s | %s", record["id"], record["title"])
+                    LOG.debug(
+                        "%s | %s | tmdb=%s (%s)",
+                        record["id"],
+                        record["title"],
+                        record["tmdb_id"],
+                        record["media_type"],
+                    )
                     reviews_valid.append(record)
                 stored_task = store_embeddings(chroma_collection, reviews_valid)
                 tg.create_task(stored_task)

@@ -151,6 +151,82 @@ def test_normalize_title_tv_falls_back_to_creators() -> None:
     assert out["reviews"] == []
 
 
+def test_normalize_title_dedupes_duplicate_actors_keeping_lowest_order() -> None:
+    raw = DetailsMovieResponseData.model_validate(
+        {
+            "id": 3,
+            "title": "Dup",
+            "credits": {
+                "cast": [
+                    {"id": 1, "name": "A", "order": 5},
+                    {"id": 1, "name": "A", "order": 0},
+                    {"id": 2, "name": "B", "order": 1},
+                ],
+                "crew": [],
+            },
+            "reviews": {"results": []},
+        }
+    )
+    out = normalize_title(raw, "movie")
+    assert out is not None
+    ids = [a["id"] for a in out["actors"]]
+    assert ids == [1, 2]
+    assert out["actors"][0]["order"] == 0
+
+
+def test_normalize_title_truncates_actors_to_five() -> None:
+    raw = DetailsMovieResponseData.model_validate(
+        {
+            "id": 4,
+            "title": "Many",
+            "credits": {
+                "cast": [{"id": i, "name": f"A{i}", "order": i} for i in range(10)],
+                "crew": [],
+            },
+            "reviews": {"results": []},
+        }
+    )
+    out = normalize_title(raw, "movie")
+    assert out is not None
+    assert len(out["actors"]) == 5
+    assert [a["id"] for a in out["actors"]] == [0, 1, 2, 3, 4]
+
+
+def test_normalize_title_returns_none_without_usable_id() -> None:
+    out = normalize_title({"title": "No id"}, "movie")
+    assert out is None
+
+
+def test_normalize_title_filters_crew_by_director_job() -> None:
+    raw = DetailsMovieResponseData.model_validate(
+        {
+            "id": 5,
+            "title": "Crew",
+            "credits": {
+                "cast": [],
+                "crew": [
+                    {"id": 1, "name": "Dir", "job": "Director"},
+                    {"id": 2, "name": "Prod", "job": "Producer"},
+                    {"id": 1, "name": "Dir", "job": "Director"},
+                ],
+            },
+            "reviews": {"results": []},
+        }
+    )
+    out = normalize_title(raw, "movie")
+    assert out is not None
+    assert out["directors"] == [{"id": 1, "name": "Dir"}]
+
+
+def test_response_models_ignore_extra_fields_and_default_missing() -> None:
+    movie = DetailsMovieResponseData.model_validate(
+        {"id": 9, "unknown_field": "ignored"}
+    )
+    assert movie.id == 9
+    assert movie.title == ""
+    assert movie.credits.cast == []
+
+
 member = st.fixed_dictionaries(
     {"name": st.text(), "order": st.integers(min_value=0, max_value=50)}
 )

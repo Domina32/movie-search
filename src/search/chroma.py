@@ -110,8 +110,9 @@ async def query_reviews(
     if total == 0:
         return []
     best: dict[str, ReviewHit] = {}
+    seen: set[str] = set()
     requested = n
-    while len(best) < n and requested <= total:
+    while len(best) < n and len(seen) < total:
         response = await collection.query(
             query_embeddings=[query_vector],
             n_results=min(requested, total),
@@ -123,6 +124,10 @@ async def query_reviews(
         distances = (response["distances"] or [[]])[0]
         if not ids:
             break
+        fresh = [i for i in ids if i not in seen]
+        if not fresh:
+            break  # same top set again, nothing new to learn
+        seen.update(ids)
         for review_id, document, metadata, distance in zip(
             ids, documents, metadatas, distances, strict=True
         ):
@@ -147,7 +152,7 @@ async def query_reviews(
                 "snippet": (document or "")[:500],
                 "score": 1.0 - float(distance),
             }
-        if len(ids) < min(requested, total):
+        if len(seen) >= total:
             break  # index exhausted
-        requested *= 2
+        requested = min(requested * 2, total)
     return list(best.values())[:n]
