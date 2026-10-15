@@ -39,6 +39,10 @@ class IngestRun(SQLModel, table=True):
         sa_type=DateTime(timezone=True),
     )
     finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    last_heartbeat: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
 
 
 class TitleBase(SQLModel):

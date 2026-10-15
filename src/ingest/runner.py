@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import time
 from asyncio import Task, TaskGroup
 from collections.abc import Coroutine
@@ -16,7 +17,13 @@ from config import (
     get_tmdb_token,
 )
 from db.models import IngestStatus
-from db.session import async_db, set_ingest_run_status, start_ingest_run, store_titles
+from db.session import (
+    async_db,
+    beat_ingest_run,
+    set_ingest_run_status,
+    start_ingest_run,
+    store_titles,
+)
 from ingest.tmdb import (
     NormalizedTitleResultData,
     TrendingMovieTitleResponseData,
@@ -87,8 +94,26 @@ async def run_tasks[T](coroutines: list[Coroutine[Any, Any, T | None]]) -> list[
     return batch
 
 
+def install_shutdown_handlers(stop: asyncio.Event) -> None:
+    """
+    Flag stop on SIGTERM/SIGINT so loops exit at the next checkpoint.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError, RuntimeError, ValueError:
+            pass
+
+
 async def fetch_titles(
-    client: AsyncClient, max_pages: int, session: AsyncSession
+    client: AsyncClient,
+    max_pages: int,
+    session: AsyncSession,
+    stop: asyncio.Event | None = None,
 ) -> None:
     """
     Fetch titles, normalize and store into db.
@@ -114,6 +139,11 @@ async def fetch_titles(
 
                 last_fetch_start_timestamp = current_timestamp
 
+                if stop is not None and stop.is_set():
+                    LOG.info("Shutdown requested, stopping ingest.")
+                    await set_ingest_run_status(run_id, IngestStatus.failed, session)
+                    return
+
                 LOG.debug(
                     f"Fetching page {current_page}/{max_pages} for media type {media_type}."
                 )
@@ -126,6 +156,7 @@ async def fetch_titles(
                 ]
                 title_batch = await run_tasks(title_coroutines)
                 stored = await store_titles(title_batch)
+                await beat_ingest_run(run_id, session)
                 LOG.debug(
                     "Stored type=%s page=%d/%d fetched=%d stored=%d",
                     media_type,
@@ -135,7 +166,7 @@ async def fetch_titles(
                     len(stored),
                 )
         await set_ingest_run_status(run_id, IngestStatus.completed, session)
-    except Exception:
+    except Exception, asyncio.CancelledError:
         LOG.exception("Ingest run %s failed.", run_id)
         await set_ingest_run_status(run_id, IngestStatus.failed, session)
         raise
@@ -143,8 +174,10 @@ async def fetch_titles(
 
 async def main():
     configure_logging()
+    stop = asyncio.Event()
 
     async with httpx.AsyncClient() as client, async_db:
+        install_shutdown_handlers(stop)
         max_pages = get_max_pages()
 
         async with async_db.factory()() as session:
@@ -152,9 +185,9 @@ async def main():
                 import pyinstrument
 
                 with pyinstrument.profile():
-                    await fetch_titles(client, max_pages, session)
+                    await fetch_titles(client, max_pages, session, stop)
             else:
-                await fetch_titles(client, max_pages, session)
+                await fetch_titles(client, max_pages, session, stop)
 
 
 if __name__ == "__main__":

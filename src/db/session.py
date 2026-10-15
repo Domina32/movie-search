@@ -243,12 +243,39 @@ async def store_titles(
     return list(zip(ids, successful_records, strict=True))
 
 
+STALE_RUN_AFTER_SECONDS = 300
+
+
+async def reap_stale_ingest_runs(session: AsyncSession) -> int:
+    """
+    Cleanup: fail running rows whose heartbeat is stale.
+    """
+    from datetime import timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(seconds=STALE_RUN_AFTER_SECONDS)
+    result = await session.execute(
+        update(IngestRun)
+        .where(
+            IngestRun.metadata.tables["ingestrun"].c.status == IngestStatus.running,
+            IngestRun.metadata.tables["ingestrun"].c.last_heartbeat < cutoff,
+        )
+        .values(status=IngestStatus.failed, finished_at=datetime.now(UTC))
+    )
+    await session.commit()
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+async def beat_ingest_run(run_id: UUID, session: AsyncSession) -> None:
+    await session.execute(
+        update(IngestRun)
+        .where(IngestRun.metadata.tables["ingestrun"].c.id == run_id)
+        .values(last_heartbeat=datetime.now(UTC))
+    )
+    await session.commit()
+
+
 async def start_ingest_run(max_pages: int, session: AsyncSession) -> UUID:
-    # await session.execute(
-    #     update(IngestRun)
-    #     .where(IngestRun.metadata.tables["ingestrun"].c.status == IngestStatus.running)
-    #     .values(status=IngestStatus.failed, finished_at=datetime.now(UTC))
-    # )
+    await reap_stale_ingest_runs(session)
     run = IngestRun(max_pages=max_pages)
     session.add(run)
     await session.commit()
@@ -268,6 +295,7 @@ async def set_ingest_run_status(
 
 
 async def is_ingest_active(session: AsyncSession) -> bool:
+    await reap_stale_ingest_runs(session)
     latest = (
         (
             await session.execute(
@@ -280,6 +308,22 @@ async def is_ingest_active(session: AsyncSession) -> bool:
         .first()
     )
     return latest is None or latest.status == IngestStatus.running
+
+
+async def reclaim_processing_reviews(session: AsyncSession) -> int:
+    """
+    Reset stranded processing rows to pending.
+    """
+    result = await session.execute(
+        update(Review)
+        .where(
+            Review.metadata.tables["review"].c.embedding_status
+            == EmbeddingStatus.processing
+        )
+        .values(embedding_status=EmbeddingStatus.pending)
+    )
+    await session.commit()
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 async def fetch_unprocessed_reviews_from_db(
