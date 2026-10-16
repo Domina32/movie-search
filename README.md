@@ -30,9 +30,23 @@
 
 ## Usage
 
-1. Create a .env file in the root with TMDB API key. Other necessary variables are populated in docker compose and are not mandatory in .env.
+1. Create a .env file in the directory root with the following variables:
 
-2. Run docker command for running all services. After build, it automatically starts fetching all trending titles for the previous day and generating embeddings for reviews. For limiting how many titles to fetch on future runs, use MAX_PAGES environment variable.
+   `POSTGRES_USER=postgres`
+
+   `POSTGRES_PASSWORD=postgres`
+
+   `POSTGRES_DB=movie_search`
+
+   `MAX_PAGES=500`
+
+   `TMDB_API_READ_ACCESS_TOKEN={token}`
+
+2. Run docker command for running all services:
+
+`docker compose --profile ingest --profile embed up`
+
+After build, it automatically starts fetching all trending titles for the previous day and generating embeddings for reviews. For limiting how many titles to fetch on future runs, use MAX_PAGES environment variable.
 
 3. After ingestion and embedding is complete, use the following API endpoints for fetching titles:
 
@@ -54,8 +68,8 @@ hence idempotent upserts, ingest-run heartbeats, and stale-run cleanup.
 
 ### No scheduler
 
-Coordination of ingestion and embedding is done via DB flag writes and polling instead of introducing
-cron, scheduler or Redis in the name of simplicity.
+Coordination of ingestion and embedding is done via DB flag writes and polling but they are deliberately
+kept as one-off jobs that can then later be scheduled via cron, scheduler or some other strategy.
 
 ### Throttling TMDB API requests
 
@@ -74,11 +88,6 @@ runtime and migrations with one driver.
 Search must return 3–5 most relevant _titles_ across both media types which makes one shared
 ranking space. The task wording uses "naslov" (title) as the common term. Splitting tables
 would mean fetching top-5 movies + top-5 shows then re-ranking and duplicating TMDB calls.
-
-### No extensive normalization
-
-No extensive normalization for all fields and not all fields are fetched from TMDB.
-Deliberately kept simple, can be built upon if search quality needs it.
 
 ### SentenceTransformers local embedding model
 
