@@ -40,7 +40,7 @@
 
    `MAX_PAGES=500`
 
-   `TMDB_API_READ_ACCESS_TOKEN={token}`
+   `TMDB_API_ACCESS_TOKEN={token}`
 
 2. Run docker command for running all services:
 
