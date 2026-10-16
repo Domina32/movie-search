@@ -31,4 +31,4 @@ COPY src ./src
 
 EXPOSE 8001
 
-CMD ["sh", "-c", "uv run --no-sync alembic upgrade head && exec uv run --no-sync uvicorn api.routes:app --host 0.0.0.0 --port 8001"]
+CMD ["sh", "-c", "exec uv run --no-sync uvicorn api.routes:app --host 0.0.0.0 --port 8001"]

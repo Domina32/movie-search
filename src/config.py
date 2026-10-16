@@ -52,10 +52,10 @@ def get_tmdb_token(token: str | None = None) -> str:
         if cleaned:
             return cleaned
         raise RuntimeError("Empty explicit token passed.")
-    cleaned = os.getenv("TMDB_API_READ_ACCESS_TOKEN", "").strip()
+    cleaned = os.getenv("TMDB_API_ACCESS_TOKEN", "").strip()
     if not cleaned:
         raise RuntimeError(
-            "Missing TMDB_API_READ_ACCESS_TOKEN. Set it in .env or environment."
+            "Missing TMDB_API_ACCESS_TOKEN. Set it in .env or environment."
         )
     return cleaned
 

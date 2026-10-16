@@ -28,7 +28,7 @@ check: lint typecheck test
 # -- Services -----------------------------------------------------------
 
 db:
-    docker start movie-pg 2>/dev/null || docker run -d --name movie-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=movie_search -p 5432:5432 -v movie-pg-data:/var/lib/postgresql/data postgres:16
+    docker start movie-pg 2>/dev/null || docker run -d --name movie-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=movie_search -p 5432:5432 -v movie-pg-data:/var/lib/postgresql/data postgres:18
     until docker exec movie-pg pg_isready -U postgres; do sleep 1; done
 
 db-down:
